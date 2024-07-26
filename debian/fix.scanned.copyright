@@ -1,0 +1,3 @@
+# Work around licensecheck not handling wrapped copyright statements
+! Files:.foreach_match(.*) Copyright=~"s/, Free Software$/, Free Software Foundation, Inc./"
+! Files:.foreach_match(.*) Copyright=~"s/, Free$/, Free Software Foundation, Inc./" 

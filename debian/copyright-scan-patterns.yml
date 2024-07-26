@@ -1,0 +1,19 @@
+check:
+  pattern:
+    - configure.ac
+  suffixes:
+    - texi
+    - y
+ignore:
+  pattern:
+    - Makefile.in
+    - aclocal.m4
+    - configure
+    - ltmain.sh
+  suffixes:
+    - der
+    - edk
+    - edk2
+    - jks
+    - pem
+    - html

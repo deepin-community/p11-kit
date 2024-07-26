@@ -97,19 +97,29 @@
 	} while (0)
 #define assert_str_eq(a1, a2) \
 	assert_str_cmp(a1, ==, a2)
-#define assert_ptr_eq(a1, a2) \
+#define assert_ptr_cmp(a1, cmp, a2)    \
 	do { const void *__p1 = (a1); \
 	     const void *__p2 = (a2); \
-	     if (__p1 == __p2) ; else \
+	     if (__p1 cmp __p2) ; else \
 	         p11_test_fail (__FILE__, __LINE__, __FUNCTION__, "assertion failed (%s == %s): (0x%08lx == 0x%08lx)", \
 	                        #a1, #a2, (unsigned long)(size_t)__p1, (unsigned long)(size_t)__p2); \
 	} while (0)
+#define assert_ptr_eq(a1, a2) \
+	assert_ptr_cmp(a1, ==, a2)
 
 #define assert_str_contains(expr, needle) \
 	do { const char *__str = (expr); \
 	     if (__str && strstr (__str, needle)) ; else \
 	         p1_test_fail (__FILE__, __LINE__, __FUNCTION__, "assertion failed (%s): '%s' does not contain '%s'", \
 	                       #expr, __str, needle); \
+	} while (0)
+#define assert_mem_eq(m1, l1, m2, l2) \
+	do { size_t __l1 = (l1); \
+	     size_t __l2 = (l2); \
+	     const void *__m1 = (m1); \
+	     const void *__m2 = (m2); \
+	     if ((__l1 == 0 && __l2 == 0) || (__l1 == __l2 && __m1 && __m2 && memcmp (__m1, __m2, l1) == 0)) ; else \
+	         p11_test_fail (__FILE__, __LINE__, __FUNCTION__, "assertion failed"); \
 	} while (0)
 
 #endif /* !P11_TEST_SOURCE */

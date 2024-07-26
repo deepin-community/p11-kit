@@ -322,15 +322,18 @@ char *
 p11_dl_error (void)
 {
 	DWORD code = GetLastError();
-	LPVOID msg_buf;
+	LPVOID msg_buf = NULL;
 	char *result;
 
 	FormatMessageA (FORMAT_MESSAGE_ALLOCATE_BUFFER |
-	                FORMAT_MESSAGE_FROM_SYSTEM |
-	                FORMAT_MESSAGE_IGNORE_INSERTS,
-	                NULL, code,
-	                MAKELANGID (LANG_NEUTRAL, SUBLANG_DEFAULT),
-	                (LPSTR)&msg_buf, 0, NULL);
+			FORMAT_MESSAGE_FROM_SYSTEM |
+			FORMAT_MESSAGE_IGNORE_INSERTS,
+			NULL, code,
+			MAKELANGID (LANG_NEUTRAL, SUBLANG_DEFAULT),
+			(LPSTR)&msg_buf, 0, NULL);
+
+	if (msg_buf == NULL)
+		return NULL;
 
 	result = strdup (msg_buf);
 	LocalFree (msg_buf);
@@ -856,7 +859,7 @@ mkdtemp (char *template)
 #ifndef HAVE_GETAUXVAL
 
 unsigned long
-getauxval (unsigned long type)
+_p11_getauxval (unsigned long type)
 {
 	static unsigned long secure = 0UL;
 	static bool check_secure_initialized = false;
@@ -868,7 +871,7 @@ getauxval (unsigned long type)
 	assert (type == AT_SECURE);
 
 	if (!check_secure_initialized) {
-#if defined(HAVE___LIBC_ENABLE_SECURE)
+#if defined(HAVE___LIBC_ENABLE_SECURE) && !defined(__GNU__)
 		extern int __libc_enable_secure;
 		secure = __libc_enable_secure;
 
@@ -905,41 +908,20 @@ getauxval (unsigned long type)
 char *
 secure_getenv (const char *name)
 {
-	if (getauxval (AT_SECURE))
+	if (_p11_getauxval (AT_SECURE))
 		return NULL;
 	return getenv (name);
 }
 
-#ifndef HAVE_STRERROR_R
+#ifndef HAVE_ISATTY
 
 int
-strerror_r (int errnum,
-            char *buf,
-            size_t buflen)
+isatty (int fd)
 {
-#ifdef OS_WIN32
-#if _WIN32_WINNT < 0x502 /* WinXP or older */
-	int n = sys_nerr;
-	const char *p;
-	if (errnum < 0 || errnum >= n)
-		p = sys_errlist[n];
-	else
-		p = sys_errlist[errnum];
-	if (buf == NULL || buflen == 0)
-		return EINVAL;
-	strncpy(buf, p, buflen);
-	buf[buflen-1] = 0;
 	return 0;
-#else /* Server 2003 or newer */
-	return strerror_s (buf, buflen, errnum);
-#endif /*_WIN32_WINNT*/
-
-#else
-	#error no strerror_r implementation
-#endif
 }
 
-#endif /* HAVE_STRERROR_R */
+#endif /* HAVE_ISATTY */
 
 void
 p11_dl_close (void *dl)
@@ -1027,6 +1009,36 @@ fdwalk (int (* cb) (void *data, int fd),
 
 #endif /* OS_UNIX */
 
+void
+p11_strerror_r (int errnum,
+		char *buf,
+		size_t buflen)
+{
+#if defined(HAVE_XSI_STRERROR_R)
+	strerror_r (errnum, buf, buflen);
+#elif defined(HAVE_GNU_STRERROR_R)
+	char *str = strerror_r (errnum, buf, buflen);
+	strncpy (buf, str, buflen);
+#elif defined(OS_WIN32)
+#if _WIN32_WINNT < 0x502 /* WinXP or older */
+	int n = sys_nerr;
+	const char *p;
+	if (errnum < 0 || errnum >= n)
+		p = sys_errlist[n];
+	else
+		p = sys_errlist[errnum];
+	if (buf == NULL || buflen == 0)
+		return;
+	strncpy(buf, p, buflen);
+	buf[buflen - 1] = '\0';
+#else /* Server 2003 or newer */
+	strerror_s (buf, buflen, errnum);
+#endif /* _WIN32_WINNT */
+#else
+	#error no strerror_r implementation
+#endif
+}
+
 int
 p11_ascii_tolower (int c)
 {
@@ -1041,4 +1053,14 @@ p11_ascii_toupper (int c)
 	if (c >= 'a' && c <= 'z')
 		return 'A' + (c - 'a');
 	return c;
+}
+
+bool
+p11_ascii_strcaseeq (const char *s1,
+		     const char *s2)
+{
+	while (p11_ascii_tolower (*s1) == p11_ascii_tolower (*s2++))
+		if (*s1++ == '\0')
+			return true;
+	return false;
 }

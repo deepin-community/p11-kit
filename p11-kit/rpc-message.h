@@ -42,6 +42,7 @@
 
 #include "buffer.h"
 #include "pkcs11.h"
+#include "pkcs11x.h"
 
 /* The calls, must be in sync with array below */
 enum {
@@ -112,6 +113,31 @@ enum {
 	P11_RPC_CALL_C_SeedRandom,
 	P11_RPC_CALL_C_GenerateRandom,
 	P11_RPC_CALL_C_WaitForSlotEvent,
+	/* PKCS #11 3.0 */
+	P11_RPC_CALL_C_LoginUser,
+	P11_RPC_CALL_C_SessionCancel,
+	P11_RPC_CALL_C_MessageEncryptInit,
+	P11_RPC_CALL_C_EncryptMessage,
+	P11_RPC_CALL_C_EncryptMessageBegin,
+	P11_RPC_CALL_C_EncryptMessageNext,
+	P11_RPC_CALL_C_MessageEncryptFinal,
+	P11_RPC_CALL_C_MessageDecryptInit,
+	P11_RPC_CALL_C_DecryptMessage,
+	P11_RPC_CALL_C_DecryptMessageBegin,
+	P11_RPC_CALL_C_DecryptMessageNext,
+	P11_RPC_CALL_C_MessageDecryptFinal,
+	P11_RPC_CALL_C_MessageSignInit,
+	P11_RPC_CALL_C_SignMessage,
+	P11_RPC_CALL_C_SignMessageBegin,
+	P11_RPC_CALL_C_SignMessageNext,
+	P11_RPC_CALL_C_MessageSignFinal,
+	P11_RPC_CALL_C_MessageVerifyInit,
+	P11_RPC_CALL_C_VerifyMessage,
+	P11_RPC_CALL_C_VerifyMessageBegin,
+	P11_RPC_CALL_C_VerifyMessageNext,
+	P11_RPC_CALL_C_MessageVerifyFinal,
+
+	P11_RPC_CALL_C_InitToken2,
 
 	P11_RPC_CALL_MAX
 };
@@ -202,6 +228,31 @@ static const p11_rpc_call p11_rpc_calls[] = {
 	{ P11_RPC_CALL_C_SeedRandom,           "C_SeedRandom",           "uay",     ""                     },
 	{ P11_RPC_CALL_C_GenerateRandom,       "C_GenerateRandom",       "ufy",     "ay"                   },
 	{ P11_RPC_CALL_C_WaitForSlotEvent,     "C_WaitForSlotEvent",     "u",       "u"                    },
+	/* PKCS #11 3.0 */
+	{ P11_RPC_CALL_C_LoginUser,            "C_LoginUser",            "uuayay",  ""                     },
+	{ P11_RPC_CALL_C_SessionCancel,        "C_SessionCancel",        "uu",      ""                     },
+	{ P11_RPC_CALL_C_MessageEncryptInit,   "C_MessageEncryptInit",   "uMu",     ""                     },
+	{ P11_RPC_CALL_C_EncryptMessage,       "C_EncryptMessage",       "uayayayfy", "ay"                 },
+	{ P11_RPC_CALL_C_EncryptMessageBegin,  "C_EncryptMessageBegin",  "uayay",   ""                     },
+	{ P11_RPC_CALL_C_EncryptMessageNext,   "C_EncryptMessageNext",   "uayayfyu", "ay"                  },
+	{ P11_RPC_CALL_C_MessageEncryptFinal,  "C_MessageEncryptFinal",  "u",       ""                     },
+	{ P11_RPC_CALL_C_MessageDecryptInit,   "C_MessageDecryptInit",   "uMu",     ""                     },
+	{ P11_RPC_CALL_C_DecryptMessage,       "C_DecryptMessage",       "uayayayfy", "ay"                 },
+	{ P11_RPC_CALL_C_DecryptMessageBegin,  "C_DecryptMessageBegin",  "uayay",   ""                     },
+	{ P11_RPC_CALL_C_DecryptMessageNext,   "C_DecryptMessageNext",   "uayayfyu", "ay"                  },
+	{ P11_RPC_CALL_C_MessageDecryptFinal,  "C_MessageDecryptFinal",  "u",       ""                     },
+	{ P11_RPC_CALL_C_MessageSignInit,      "C_MessageSignInit",      "uMu",     ""                     },
+	{ P11_RPC_CALL_C_SignMessage,          "C_SignMessage",          "uayayfy", "ay"                   },
+	{ P11_RPC_CALL_C_SignMessageBegin,     "C_SignMessageBegin",     "uay",     ""                     },
+	{ P11_RPC_CALL_C_SignMessageNext,      "C_SignMessageNext",      "uayayyfy", "ay"                   },
+	{ P11_RPC_CALL_C_MessageSignFinal,     "C_MessageSignFinal",     "u",       ""                     },
+	{ P11_RPC_CALL_C_MessageVerifyInit,    "C_MessageVerifyInit",    "uMu",     ""                     },
+	{ P11_RPC_CALL_C_VerifyMessage,        "C_VerifyMessage",        "uayayay", ""                     },
+	{ P11_RPC_CALL_C_VerifyMessageBegin,   "C_VerifyMessageBegin",   "uay",     ""                     },
+	{ P11_RPC_CALL_C_VerifyMessageNext,    "C_VerifyMessageNext",    "uayayay", ""                     },
+	{ P11_RPC_CALL_C_MessageVerifyFinal,   "C_MessageVerifyFinal",   "u",       ""                     },
+
+	{ P11_RPC_CALL_C_InitToken2,           "C_InitToken2",           "uays",    ""                     },
 };
 
 #ifdef _DEBUG
@@ -225,9 +276,6 @@ typedef enum _p11_rpc_value_type {
 	P11_RPC_VALUE_BYTE_ARRAY
 } p11_rpc_value_type;
 
-typedef void (*p11_rpc_value_encoder) (p11_buffer *, const void *, CK_ULONG);
-typedef bool (*p11_rpc_value_decoder) (p11_buffer *, size_t *, void *, CK_ULONG *);
-
 typedef enum _p11_rpc_message_type {
 	P11_RPC_REQUEST = 1,
 	P11_RPC_RESPONSE
@@ -243,6 +291,10 @@ typedef struct {
 	const char *sigverify;
 	void *extra;
 } p11_rpc_message;
+
+typedef void (*p11_rpc_value_encoder) (p11_buffer *, const void *, CK_ULONG);
+typedef bool (*p11_rpc_value_decoder) (p11_buffer *, size_t *, void *, CK_ULONG *);
+typedef bool (*p11_rpc_message_decoder) (p11_rpc_message *msg, p11_buffer *, size_t *, void *, CK_ULONG *);
 
 void             p11_rpc_message_init                    (p11_rpc_message *msg,
                                                           p11_buffer *input,
@@ -319,6 +371,11 @@ bool             p11_rpc_message_read_space_string       (p11_rpc_message *msg,
 
 bool             p11_rpc_message_read_version            (p11_rpc_message *msg,
                                                           CK_VERSION* version);
+
+bool             p11_rpc_message_get_attribute           (p11_rpc_message *msg,
+							  p11_buffer *buffer,
+							  size_t *offset,
+							  CK_ATTRIBUTE *attr);
 
 p11_buffer *     p11_rpc_buffer_new                      (size_t reserve);
 
@@ -475,6 +532,86 @@ void             p11_rpc_buffer_add_rsa_pkcs_oaep_mechanism_value
 
 bool             p11_rpc_buffer_get_rsa_pkcs_oaep_mechanism_value
                                                           (p11_buffer *buffer,
+							   size_t *offset,
+							   void *value,
+							   CK_ULONG *value_length);
+
+void            p11_rpc_buffer_add_ecdh1_derive_mechanism_value
+							  (p11_buffer *buffer,
+							   const void *value,
+							   CK_ULONG value_length);
+
+bool            p11_rpc_buffer_get_ecdh1_derive_mechanism_value
+							  (p11_buffer *buffer,
+							   size_t *offset,
+							   void *value,
+							   CK_ULONG *value_length);
+
+void            p11_rpc_buffer_add_ibm_attrbound_wrap_mechanism_value
+							  (p11_buffer *buffer,
+							   const void *value,
+							   CK_ULONG value_length);
+
+bool            p11_rpc_buffer_get_ibm_attrbound_wrap_mechanism_value
+							  (p11_buffer *buffer,
+							   size_t *offset,
+							   void *value,
+							   CK_ULONG *value_length);
+
+void		p11_rpc_buffer_add_aes_iv_mechanism_value (p11_buffer *buffer,
+							   const void *value,
+							   CK_ULONG value_length);
+
+bool		p11_rpc_buffer_get_aes_iv_mechanism_value (p11_buffer *buffer,
+							   size_t *offset,
+							   void *value,
+							   CK_ULONG *value_length);
+
+void		p11_rpc_buffer_add_aes_ctr_mechanism_value (p11_buffer *buffer,
+							    const void *value,
+							    CK_ULONG value_length);
+
+bool		p11_rpc_buffer_get_aes_ctr_mechanism_value (p11_buffer *buffer,
+							    size_t *offset,
+							    void *value,
+							    CK_ULONG *value_length);
+
+void		p11_rpc_buffer_add_aes_gcm_mechanism_value (p11_buffer *buffer,
+							    const void *value,
+							    CK_ULONG value_length);
+
+bool		p11_rpc_buffer_get_aes_gcm_mechanism_value (p11_buffer *buffer,
+							    size_t *offset,
+							    void *value,
+							    CK_ULONG *value_length);
+
+void		p11_rpc_buffer_add_des_iv_mechanism_value (p11_buffer *buffer,
+							   const void *value,
+							   CK_ULONG value_length);
+
+bool		p11_rpc_buffer_get_des_iv_mechanism_value (p11_buffer *buffer,
+							   size_t *offset,
+							   void *value,
+							   CK_ULONG *value_length);
+
+void		p11_rpc_buffer_add_mac_general_mechanism_value
+							  (p11_buffer *buffer,
+							   const void *value,
+							   CK_ULONG value_length);
+
+bool		p11_rpc_buffer_get_mac_general_mechanism_value
+							  (p11_buffer *buffer,
+							   size_t *offset,
+							   void *value,
+							   CK_ULONG *value_length);
+
+void		p11_rpc_buffer_add_dh_pkcs_derive_mechanism_value
+							  (p11_buffer *buffer,
+							   const void *value,
+							   CK_ULONG value_length);
+
+bool		p11_rpc_buffer_get_dh_pkcs_derive_mechanism_value
+							  (p11_buffer *buffer,
 							   size_t *offset,
 							   void *value,
 							   CK_ULONG *value_length);

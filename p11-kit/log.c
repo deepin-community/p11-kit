@@ -466,11 +466,15 @@ log_mechanism (p11_buffer *buf,
 	p11_buffer_add (buf, name, -1);
 	p11_buffer_add (buf, " = {\n", 5);
 	p11_buffer_add (buf, "\tmechanism: ", -1);
-	log_CKM (buf, mech->mechanism);
-	p11_buffer_add (buf, "\n\tpParameter: ", -1);
-	snprintf (temp, sizeof (temp), "(%lu) ", mech->ulParameterLen);
-	p11_buffer_add (buf, temp, -1);
-	log_some_bytes (buf, mech->pParameter, mech->ulParameterLen);
+	if (mech != NULL) {
+		log_CKM (buf, mech->mechanism);
+		p11_buffer_add (buf, "\n\tpParameter: ", -1);
+		snprintf (temp, sizeof (temp), "(%lu) ", mech->ulParameterLen);
+		p11_buffer_add (buf, temp, -1);
+		log_some_bytes (buf, mech->pParameter, mech->ulParameterLen);
+	} else {
+		p11_buffer_add (buf, "NULL", 4);
+	}
 	p11_buffer_add (buf, "\n      }\n", -1);
 }
 
@@ -604,11 +608,12 @@ log_slot_info (p11_buffer *buf,
 }
 
 static void
-log_string (p11_buffer *buf,
-            const char *pref,
-            const char *name,
-            CK_UTF8CHAR_PTR str,
-            const CK_RV status)
+log_space_string (p11_buffer *buf,
+                  const char *pref,
+                  const char *name,
+                  CK_UTF8CHAR_PTR str,
+                  CK_ULONG len,
+                  const CK_RV status)
 {
 	if (status != CKR_OK)
 		return;
@@ -618,7 +623,7 @@ log_string (p11_buffer *buf,
 		p11_buffer_add (buf, pref, -1);
 		p11_buffer_add (buf, name, -1);
 		p11_buffer_add (buf, " = \"", 4);
-		p11_buffer_add (buf, str, -1);
+		p11_buffer_add (buf, str, strnlen ((const char *)str, len));
 		p11_buffer_add (buf, "\"\n", 2);
 	}
 }
@@ -726,7 +731,11 @@ log_token_info (p11_buffer *buf,
 		          (unsigned int)info->firmwareVersion.minor);
 		p11_buffer_add (buf, temp, -1);
 		p11_buffer_add (buf, "\n\tutcTime: ", -1);
-		p11_buffer_add (buf, (info->flags & CKF_CLOCK_ON_TOKEN) ? (const char*)info->utcTime : "", sizeof (info->utcTime));
+		if (info->flags & CKF_CLOCK_ON_TOKEN) {
+			p11_buffer_add (buf, (const char*)info->utcTime, sizeof (info->utcTime));
+		} else {
+			p11_buffer_add (buf, "(not supported)", -1);
+		}
 		p11_buffer_add (buf, "\n      }\n", -1);
 	}
 }
@@ -913,8 +922,8 @@ flush_buffer (p11_buffer *buf)
 #define IN_SLOT_ID(a) \
 		log_ulong (&_buf, LIN, #a, a, "SL", CKR_OK);
 
-#define IN_STRING(a) \
-		log_string (&_buf, LIN, #a, a, CKR_OK);
+#define IN_SPACE_STRING(a, n) \
+		log_space_string (&_buf, LIN, #a, a, n, CKR_OK);
 
 #define IN_ULONG(a) \
 		log_ulong (&_buf, LIN, #a, a, NULL, CKR_OK);
@@ -1083,7 +1092,7 @@ log_C_InitToken (CK_X_FUNCTION_LIST *self,
 	BEGIN_CALL (InitToken)
 		IN_SLOT_ID (slotID)
 		IN_BYTE_ARRAY (pPin, ulPinLen)
-		IN_STRING (pLabel)
+		IN_SPACE_STRING (pLabel, 32)
 	PROCESS_CALL ((self, slotID, pPin, ulPinLen, pLabel))
 	DONE_CALL
 }
@@ -1928,6 +1937,408 @@ log_C_GenerateRandom (CK_X_FUNCTION_LIST *self,
 	DONE_CALL
 }
 
+static CK_RV
+log_C_LoginUser (CK_X_FUNCTION_LIST *self,
+                 CK_SESSION_HANDLE session,
+                 CK_USER_TYPE user_type,
+                 CK_UTF8CHAR_PTR pin,
+                 CK_ULONG pin_len,
+                 CK_UTF8CHAR_PTR username,
+                 CK_ULONG username_len)
+{
+	BEGIN_CALL (LoginUser)
+		IN_SESSION (session)
+		IN_USER_TYPE (user_type)
+		IN_BYTE_ARRAY (pin, pin_len)
+		IN_BYTE_ARRAY (username, username_len)
+	PROCESS_CALL ((self, session, user_type, pin, pin_len, username, username_len))
+
+	DONE_CALL
+}
+
+static CK_RV
+log_C_SessionCancel (CK_X_FUNCTION_LIST *self,
+                     CK_SESSION_HANDLE session,
+                     CK_FLAGS flags)
+{
+	char temp[32];
+	int had = 0;
+
+	BEGIN_CALL (SessionCancel)
+		IN_SESSION (session)
+		p11_buffer_add (&_buf, "  IN: flags = ", -1);
+		snprintf (temp, sizeof (temp), "%lu", flags);
+		p11_buffer_add (&_buf, temp, -1);
+		LOG_FLAG (&_buf, flags, had, CKF_MESSAGE_ENCRYPT);
+		LOG_FLAG (&_buf, flags, had, CKF_MESSAGE_DECRYPT);
+		LOG_FLAG (&_buf, flags, had, CKF_MESSAGE_SIGN);
+		LOG_FLAG (&_buf, flags, had, CKF_MESSAGE_VERIFY);
+		LOG_FLAG (&_buf, flags, had, CKF_FIND_OBJECTS);
+		LOG_FLAG (&_buf, flags, had, CKF_ENCRYPT);
+		LOG_FLAG (&_buf, flags, had, CKF_DECRYPT);
+		LOG_FLAG (&_buf, flags, had, CKF_DIGEST);
+		LOG_FLAG (&_buf, flags, had, CKF_SIGN);
+		LOG_FLAG (&_buf, flags, had, CKF_SIGN_RECOVER);
+		LOG_FLAG (&_buf, flags, had, CKF_VERIFY);
+		LOG_FLAG (&_buf, flags, had, CKF_VERIFY_RECOVER);
+		LOG_FLAG (&_buf, flags, had, CKF_GENERATE);
+		LOG_FLAG (&_buf, flags, had, CKF_GENERATE_KEY_PAIR);
+		LOG_FLAG (&_buf, flags, had, CKF_WRAP);
+		LOG_FLAG (&_buf, flags, had, CKF_UNWRAP);
+		LOG_FLAG (&_buf, flags, had, CKF_DERIVE);
+		p11_buffer_add (&_buf, "\n", 1);
+	PROCESS_CALL ((self, session, flags))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_MessageEncryptInit (CK_X_FUNCTION_LIST *self,
+                          CK_SESSION_HANDLE session,
+                          CK_MECHANISM_PTR mechanism,
+                          CK_OBJECT_HANDLE key)
+{
+	BEGIN_CALL (MessageEncryptInit)
+		IN_SESSION (session)
+		IN_MECHANISM (mechanism)
+		IN_HANDLE (key)
+	PROCESS_CALL ((self, session, mechanism, key))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_EncryptMessage (CK_X_FUNCTION_LIST *self,
+                      CK_SESSION_HANDLE session,
+                      CK_VOID_PTR parameter,
+                      CK_ULONG parameter_len,
+                      CK_BYTE_PTR associated_data,
+                      CK_ULONG associated_data_len,
+                      CK_BYTE_PTR plaintext,
+                      CK_ULONG plaintext_len,
+                      CK_BYTE_PTR ciphertext,
+                      CK_ULONG_PTR ciphertext_len)
+{
+	BEGIN_CALL (EncryptMessage)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (associated_data, associated_data_len)
+		IN_BYTE_ARRAY (plaintext, plaintext_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len, associated_data, associated_data_len,
+	               plaintext, plaintext_len, ciphertext, ciphertext_len))
+		OUT_BYTE_ARRAY (ciphertext, ciphertext_len)
+	DONE_CALL
+}
+
+static CK_RV
+log_C_EncryptMessageBegin (CK_X_FUNCTION_LIST *self,
+                           CK_SESSION_HANDLE session,
+                           CK_VOID_PTR parameter,
+                           CK_ULONG parameter_len,
+                           CK_BYTE_PTR associated_data,
+                           CK_ULONG associated_data_len)
+{
+	BEGIN_CALL (EncryptMessageBegin)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (associated_data, associated_data_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len, associated_data, associated_data_len))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_EncryptMessageNext (CK_X_FUNCTION_LIST *self,
+                          CK_SESSION_HANDLE session,
+                          CK_VOID_PTR parameter,
+                          CK_ULONG parameter_len,
+                          CK_BYTE_PTR plaintext_part,
+                          CK_ULONG plaintext_part_len,
+                          CK_BYTE_PTR ciphertext_part,
+                          CK_ULONG_PTR ciphertext_part_len,
+                          CK_FLAGS flags)
+{
+	char temp[32];
+	int had = 0;
+
+	BEGIN_CALL (EncryptMessageNext)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (plaintext_part, plaintext_part_len)
+		p11_buffer_add (&_buf, "  IN: flags = ", -1);
+		snprintf (temp, sizeof (temp), "%lu", flags);
+		p11_buffer_add (&_buf, temp, -1);
+		LOG_FLAG (&_buf, flags, had, CKF_END_OF_MESSAGE);
+		p11_buffer_add (&_buf, "\n", 1);
+	PROCESS_CALL ((self, session, parameter, parameter_len, plaintext_part, plaintext_part_len,
+	               ciphertext_part, ciphertext_part_len, flags))
+		OUT_BYTE_ARRAY (ciphertext_part, ciphertext_part_len)
+	DONE_CALL
+}
+
+static CK_RV
+log_C_MessageEncryptFinal (CK_X_FUNCTION_LIST *self,
+                           CK_SESSION_HANDLE session)
+{
+	BEGIN_CALL (MessageEncryptFinal)
+		IN_SESSION (session)
+	PROCESS_CALL ((self, session))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_MessageDecryptInit (CK_X_FUNCTION_LIST *self,
+                          CK_SESSION_HANDLE session,
+                          CK_MECHANISM_PTR mechanism,
+                          CK_OBJECT_HANDLE key)
+{
+	BEGIN_CALL (MessageDecryptInit)
+		IN_SESSION (session)
+		IN_MECHANISM (mechanism)
+		IN_HANDLE (key)
+	PROCESS_CALL ((self, session, mechanism, key))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_DecryptMessage (CK_X_FUNCTION_LIST *self,
+                      CK_SESSION_HANDLE session,
+                      CK_VOID_PTR parameter,
+                      CK_ULONG parameter_len,
+                      CK_BYTE_PTR associated_data,
+                      CK_ULONG associated_data_len,
+                      CK_BYTE_PTR ciphertext,
+                      CK_ULONG ciphertext_len,
+                      CK_BYTE_PTR plaintext,
+                      CK_ULONG_PTR plaintext_len)
+{
+	BEGIN_CALL (DecryptMessage)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (associated_data, associated_data_len)
+		IN_BYTE_ARRAY (ciphertext, ciphertext_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len, associated_data, associated_data_len,
+	               ciphertext, ciphertext_len, plaintext, plaintext_len));
+		OUT_BYTE_ARRAY (plaintext, plaintext_len)
+	DONE_CALL
+}
+
+static CK_RV
+log_C_DecryptMessageBegin (CK_X_FUNCTION_LIST *self,
+                           CK_SESSION_HANDLE session,
+                           CK_VOID_PTR parameter,
+                           CK_ULONG parameter_len,
+                           CK_BYTE_PTR associated_data,
+                           CK_ULONG associated_data_len)
+{
+	BEGIN_CALL (DecryptMessageBegin)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (associated_data, associated_data_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len, associated_data, associated_data_len))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_DecryptMessageNext (CK_X_FUNCTION_LIST *self,
+                          CK_SESSION_HANDLE session,
+                          CK_VOID_PTR parameter,
+                          CK_ULONG parameter_len,
+                          CK_BYTE_PTR ciphertext_part,
+                          CK_ULONG ciphertext_part_len,
+                          CK_BYTE_PTR plaintext_part,
+                          CK_ULONG_PTR plaintext_part_len,
+                          CK_FLAGS flags)
+{
+	char temp[32];
+	int had = 0;
+
+	BEGIN_CALL (DecryptMessageNext)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (ciphertext_part, ciphertext_part_len)
+		p11_buffer_add (&_buf, "  IN: flags = ", -1);
+		snprintf (temp, sizeof (temp), "%lu", flags);
+		p11_buffer_add (&_buf, temp, -1);
+		LOG_FLAG (&_buf, flags, had, CKF_END_OF_MESSAGE);
+		p11_buffer_add (&_buf, "\n", 1);
+	PROCESS_CALL ((self, session, parameter, parameter_len, ciphertext_part, ciphertext_part_len,
+	               plaintext_part, plaintext_part_len, flags))
+		OUT_BYTE_ARRAY (plaintext_part, plaintext_part_len)
+	DONE_CALL
+}
+
+static CK_RV
+log_C_MessageDecryptFinal (CK_X_FUNCTION_LIST *self,
+                           CK_SESSION_HANDLE session)
+{
+	BEGIN_CALL (MessageDecryptFinal)
+		IN_SESSION (session)
+	PROCESS_CALL ((self, session))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_MessageSignInit (CK_X_FUNCTION_LIST *self,
+                       CK_SESSION_HANDLE session,
+                       CK_MECHANISM_PTR mechanism,
+                       CK_OBJECT_HANDLE key)
+{
+	BEGIN_CALL (MessageSignInit)
+		IN_SESSION (session)
+		IN_MECHANISM (mechanism)
+		IN_HANDLE (key)
+	PROCESS_CALL ((self, session, mechanism, key))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_SignMessage (CK_X_FUNCTION_LIST *self,
+                   CK_SESSION_HANDLE session,
+                   CK_VOID_PTR parameter,
+                   CK_ULONG parameter_len,
+                   CK_BYTE_PTR data,
+                   CK_ULONG data_len,
+                   CK_BYTE_PTR signature,
+                   CK_ULONG_PTR signature_len)
+{
+	BEGIN_CALL (SignMessage)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (data, data_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len, data, data_len, signature, signature_len))
+		OUT_BYTE_ARRAY (signature, signature_len)
+	DONE_CALL
+}
+
+static CK_RV
+log_C_SignMessageBegin (CK_X_FUNCTION_LIST *self,
+                        CK_SESSION_HANDLE session,
+                        CK_VOID_PTR parameter,
+                        CK_ULONG parameter_len)
+{
+	BEGIN_CALL (SignMessageBegin)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_SignMessageNext (CK_X_FUNCTION_LIST *self,
+                       CK_SESSION_HANDLE session,
+                       CK_VOID_PTR parameter,
+                       CK_ULONG parameter_len,
+                       CK_BYTE_PTR data,
+                       CK_ULONG data_len,
+                       CK_BYTE_PTR signature,
+                       CK_ULONG_PTR signature_len)
+{
+	BEGIN_CALL (SignMessageNext)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (data, data_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len, data, data_len, signature, signature_len))
+		OUT_BYTE_ARRAY (signature, signature_len)
+	DONE_CALL
+}
+
+static CK_RV
+log_C_MessageSignFinal (CK_X_FUNCTION_LIST *self,
+                        CK_SESSION_HANDLE session)
+{
+	BEGIN_CALL (MessageSignFinal)
+		IN_SESSION (session)
+	PROCESS_CALL ((self, session))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_MessageVerifyInit (CK_X_FUNCTION_LIST *self,
+                         CK_SESSION_HANDLE session,
+                         CK_MECHANISM_PTR mechanism,
+                         CK_OBJECT_HANDLE key)
+{
+	BEGIN_CALL (MessageVerifyInit)
+		IN_SESSION (session)
+		IN_MECHANISM (mechanism)
+		IN_HANDLE (key)
+	PROCESS_CALL ((self, session, mechanism, key))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_VerifyMessage (CK_X_FUNCTION_LIST *self,
+                     CK_SESSION_HANDLE session,
+                     CK_VOID_PTR parameter,
+                     CK_ULONG parameter_len,
+                     CK_BYTE_PTR data,
+                     CK_ULONG data_len,
+                     CK_BYTE_PTR signature,
+                     CK_ULONG signature_len)
+{
+	BEGIN_CALL (VerifyMessage)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (data, data_len)
+		IN_BYTE_ARRAY (signature, signature_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len, data, data_len,
+	               signature, signature_len))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_VerifyMessageBegin (CK_X_FUNCTION_LIST *self,
+                          CK_SESSION_HANDLE session,
+                          CK_VOID_PTR parameter,
+                          CK_ULONG parameter_len)
+{
+	BEGIN_CALL (VerifyMessageBegin)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_VerifyMessageNext (CK_X_FUNCTION_LIST *self,
+                         CK_SESSION_HANDLE session,
+                         CK_VOID_PTR parameter,
+                         CK_ULONG parameter_len,
+                         CK_BYTE_PTR data,
+                         CK_ULONG data_len,
+                         CK_BYTE_PTR signature,
+                         CK_ULONG signature_len)
+{
+	BEGIN_CALL (VerifyMessageNext)
+		IN_SESSION (session)
+		IN_POINTER (parameter)
+		IN_ULONG (parameter_len)
+		IN_BYTE_ARRAY (data, data_len)
+		IN_BYTE_ARRAY (signature, signature_len)
+	PROCESS_CALL ((self, session, parameter, parameter_len, data, data_len,
+	               signature, signature_len))
+	DONE_CALL
+}
+
+static CK_RV
+log_C_MessageVerifyFinal (CK_X_FUNCTION_LIST *self,
+                          CK_SESSION_HANDLE session)
+{
+	BEGIN_CALL (MessageVerifyFinal)
+		IN_SESSION (session)
+	PROCESS_CALL ((self, session))
+	DONE_CALL
+}
+
 static CK_X_FUNCTION_LIST log_functions = {
 	{ -1, -1 },
 	log_C_Initialize,
@@ -1995,6 +2406,29 @@ static CK_X_FUNCTION_LIST log_functions = {
 	log_C_SeedRandom,
 	log_C_GenerateRandom,
 	log_C_WaitForSlotEvent,
+	/* PKCS #11 3.0 */
+	log_C_LoginUser,
+	log_C_SessionCancel,
+	log_C_MessageEncryptInit,
+	log_C_EncryptMessage,
+	log_C_EncryptMessageBegin,
+	log_C_EncryptMessageNext,
+	log_C_MessageEncryptFinal,
+	log_C_MessageDecryptInit,
+	log_C_DecryptMessage,
+	log_C_DecryptMessageBegin,
+	log_C_DecryptMessageNext,
+	log_C_MessageDecryptFinal,
+	log_C_MessageSignInit,
+	log_C_SignMessage,
+	log_C_SignMessageBegin,
+	log_C_SignMessageNext,
+	log_C_MessageSignFinal,
+	log_C_MessageVerifyInit,
+	log_C_VerifyMessage,
+	log_C_VerifyMessageBegin,
+	log_C_VerifyMessageNext,
+	log_C_MessageVerifyFinal
 };
 
 void

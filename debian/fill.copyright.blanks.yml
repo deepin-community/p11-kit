@@ -1,0 +1,26 @@
+debian/:
+  license: BSD-3-clause
+  copyright: 2011-2024, Andreas Metzler <ametzler@debian.org>
+    2011, Chris Coulson <chris.coulson@canonical.com>
+build/m4/gettext.m4:
+  'override-license': FSFULLR
+build/m4/intlmacosx.m4:
+  'override-license': FSFULLR
+build/m4/libtool.m4:
+  'override-license': FSFULLR
+build/m4/nls.m4:
+  'override-license': FSFULLR
+build/m4/po.m4:
+  'override-license': FSFULLR
+build/m4/progtest.m4:
+  'override-license': FSFULLR
+common/pkcs11.h:
+  'override-license': customFSFULLRWD
+po/hu.po:
+  'override-license': BSD-3-clause
+po/Rules-quot:
+  'override-license': customFSFUL
+po/insert-header.sin:
+  'override-license': customFSFUL
+trust/utf8.c:
+ 'override-license': BSD-3-clause

@@ -40,11 +40,12 @@
 #include "path.h"
 #include "p11-kit.h"
 #include "remote.h"
-#include "tool.h"
+#include "options.h"
 
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +61,7 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #ifdef WITH_SYSTEMD
@@ -303,6 +305,7 @@ create_unix_socket (const char *address,
 	int rc, sd;
 	struct sockaddr_un sa;
 	const char *socket_file;
+	mode_t socket_mask;
 
 	memset (&sa, 0, sizeof(sa));
 	sa.sun_family = AF_UNIX;
@@ -319,7 +322,10 @@ create_unix_socket (const char *address,
 		return -1;
 	}
 
-	umask (066);
+	socket_mask = S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
+	if (gid != -1)
+		socket_mask &= ~(S_IRGRP | S_IWGRP);
+	umask (socket_mask);
 	rc = bind (sd, (struct sockaddr *)&sa, SUN_LEN (&sa));
 	if (rc == -1) {
 		close (sd);
@@ -334,7 +340,7 @@ create_unix_socket (const char *address,
 		return 1;
 	}
 
-	if (uid != -1 && gid != -1) {
+	if (uid != -1 || gid != -1) {
 		rc = chown (socket_file, uid, gid);
 		if (rc == -1) {
 			close (sd);
@@ -553,7 +559,7 @@ server_loop (Server *server,
 
 		/* timeout */
 		if (ret == 0 && children_avail == 0 && timeout != NULL) {
-			p11_message (_("no connections to %s for %lu secs, exiting"), server->socket_name, timeout->tv_sec);
+			p11_message (_("no connections to %s for %" PRIu64 " secs, exiting"), server->socket_name, (uint64_t)timeout->tv_sec);
 			break;
 		}
 
@@ -780,7 +786,7 @@ main (int argc,
 		return 2;
 	}
 
-	if (!csh_opt) {
+	if (!opt_sh && !opt_csh) {
 		const char *shell = secure_getenv ("SHELL");
 		size_t len;
 		if (shell != NULL && (len = strlen (shell)) > 2 &&

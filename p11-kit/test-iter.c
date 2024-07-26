@@ -43,6 +43,7 @@
 #include "library.h"
 #include "message.h"
 #include "mock.h"
+#include "pin.h"
 
 #include <assert.h>
 #include <string.h>
@@ -91,7 +92,7 @@ has_handle (CK_ULONG *objects,
 static void
 test_all (void)
 {
-	CK_OBJECT_HANDLE objects[128];
+	CK_OBJECT_HANDLE objects[128] = { 0 };
 	CK_FUNCTION_LIST_PTR *modules;
 	CK_FUNCTION_LIST_PTR module;
 	CK_SESSION_HANDLE session;
@@ -135,6 +136,7 @@ test_all (void)
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_CAPITALIZE));
 	assert (!has_handle (objects, at, MOCK_PRIVATE_KEY_PREFIX));
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_PREFIX));
+	assert (!has_handle (objects, at, MOCK_PROFILE_OBJECT));
 
 	p11_kit_iter_free (iter);
 
@@ -178,7 +180,7 @@ on_iter_callback (P11KitIter *iter,
 static void
 test_callback (void)
 {
-	CK_OBJECT_HANDLE objects[128];
+	CK_OBJECT_HANDLE objects[128] = { 0 };
 	CK_FUNCTION_LIST_PTR *modules;
 	P11KitIter *iter;
 	CK_RV rv;
@@ -207,6 +209,7 @@ test_callback (void)
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_CAPITALIZE));
 	assert (!has_handle (objects, at, MOCK_PRIVATE_KEY_PREFIX));
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_PREFIX));
+	assert (!has_handle (objects, at, MOCK_PROFILE_OBJECT));
 
 	p11_kit_iter_free (iter);
 
@@ -271,7 +274,7 @@ test_callback_destroyer (void)
 static void
 test_with_session (void)
 {
-	CK_OBJECT_HANDLE objects[128];
+	CK_OBJECT_HANDLE objects[128] = { 0 };
 	CK_SESSION_HANDLE session;
 	CK_FUNCTION_LIST_PTR module;
 	CK_SLOT_ID slot;
@@ -314,6 +317,7 @@ test_with_session (void)
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_CAPITALIZE));
 	assert (!has_handle (objects, at, MOCK_PRIVATE_KEY_PREFIX));
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_PREFIX));
+	assert (!has_handle (objects, at, MOCK_PROFILE_OBJECT));
 
 	p11_kit_iter_free (iter);
 
@@ -328,7 +332,7 @@ test_with_session (void)
 static void
 test_with_slot (void)
 {
-	CK_OBJECT_HANDLE objects[128];
+	CK_OBJECT_HANDLE objects[128] = { 0 };
 	CK_FUNCTION_LIST_PTR module;
 	CK_SLOT_ID slot;
 	P11KitIter *iter;
@@ -365,6 +369,7 @@ test_with_slot (void)
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_CAPITALIZE));
 	assert (!has_handle (objects, at, MOCK_PRIVATE_KEY_PREFIX));
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_PREFIX));
+	assert (!has_handle (objects, at, MOCK_PROFILE_OBJECT));
 
 	p11_kit_iter_free (iter);
 
@@ -375,7 +380,7 @@ test_with_slot (void)
 static void
 test_with_module (void)
 {
-	CK_OBJECT_HANDLE objects[128];
+	CK_OBJECT_HANDLE objects[128] = { 0 };
 	CK_FUNCTION_LIST_PTR module;
 	P11KitIter *iter;
 	CK_RV rv;
@@ -408,6 +413,7 @@ test_with_module (void)
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_CAPITALIZE));
 	assert (!has_handle (objects, at, MOCK_PRIVATE_KEY_PREFIX));
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_PREFIX));
+	assert (!has_handle (objects, at, MOCK_PROFILE_OBJECT));
 
 	p11_kit_iter_free (iter);
 
@@ -478,7 +484,7 @@ test_unrecognized (void)
 static void
 test_uri_with_type (void)
 {
-	CK_OBJECT_HANDLE objects[128];
+	CK_OBJECT_HANDLE objects[128] = { 0 };
 	CK_FUNCTION_LIST_PTR *modules;
 	P11KitIter *iter;
 	P11KitUri *uri;
@@ -514,6 +520,7 @@ test_uri_with_type (void)
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_CAPITALIZE));
 	assert (!has_handle (objects, at, MOCK_PRIVATE_KEY_PREFIX));
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_PREFIX));
+	assert (!has_handle (objects, at, MOCK_PROFILE_OBJECT));
 
 	p11_kit_iter_free (iter);
 
@@ -550,7 +557,7 @@ test_set_uri (void)
 static void
 test_filter (void)
 {
-	CK_OBJECT_HANDLE objects[128];
+	CK_OBJECT_HANDLE objects[128] = { 0 };
 	CK_FUNCTION_LIST_PTR *modules;
 	P11KitIter *iter;
 	CK_RV rv;
@@ -587,6 +594,7 @@ test_filter (void)
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_CAPITALIZE));
 	assert (!has_handle (objects, at, MOCK_PRIVATE_KEY_PREFIX));
 	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_PREFIX));
+	assert (!has_handle (objects, at, MOCK_PROFILE_OBJECT));
 
 	p11_kit_iter_free (iter);
 
@@ -951,7 +959,9 @@ test_slot_info (void)
 }
 
 static void
-test_token_match (void)
+iter_token_match (const char *string,
+		  P11KitIterBehavior behavior,
+		  int expected_count)
 {
 	CK_FUNCTION_LIST_PTR *modules;
 	P11KitIter *iter;
@@ -963,10 +973,10 @@ test_token_match (void)
 	modules = initialize_and_get_modules ();
 
 	uri = p11_kit_uri_new ();
-	ret = p11_kit_uri_parse ("pkcs11:manufacturer=TEST%20MANUFACTURER", P11_KIT_URI_FOR_TOKEN, uri);
+	ret = p11_kit_uri_parse (string, P11_KIT_URI_FOR_TOKEN, uri);
 	assert_num_eq (P11_KIT_URI_OK, ret);
 
-	iter = p11_kit_iter_new (uri, 0);
+	iter = p11_kit_iter_new (uri, behavior);
 	p11_kit_uri_free (uri);
 
 	p11_kit_iter_begin (iter, modules);
@@ -978,11 +988,51 @@ test_token_match (void)
 	assert (rv == CKR_CANCEL);
 
 	/* Three modules, each with 1 slot, and 3 public objects */
-	assert_num_eq (9, count);
+	assert_num_eq (expected_count, count);
 
 	p11_kit_iter_free (iter);
 
 	finalize_and_free_modules (modules);
+}
+
+static void
+test_token_match (void)
+{
+	/* Three modules, each with 1 slot, and 3 public objects */
+	iter_token_match ("pkcs11:manufacturer=TEST%20MANUFACTURER", 0, 9);
+}
+
+static P11KitPin *
+login_callback (const char *pin_source,
+		P11KitUri *pin_uri,
+		const char *pin_description,
+		P11KitPinFlags pin_flags,
+		void *callback_data)
+{
+	int *called = callback_data;
+	(*called)++;
+
+	assert_str_eq ("PIN for TEST LABEL", pin_description);
+	return p11_kit_pin_new_for_buffer ((unsigned char*)strdup ("booo"), 4,
+					   free);
+}
+
+static void
+test_token_match_with_login (void)
+{
+	int called = 0;
+
+	p11_kit_pin_register_callback ("my-pin-source", login_callback,
+	                               &called, NULL);
+
+	/* Three modules, each with 1 slot, 3 public and 2 private objects */
+	iter_token_match ("pkcs11:manufacturer=TEST%20MANUFACTURER"
+			  "?pin-source=my-pin-source",
+			  P11_KIT_ITER_WITH_LOGIN, 15);
+
+	assert_num_eq (3, called);
+
+	p11_kit_pin_unregister_callback ("my-pin-source", login_callback, NULL);
 }
 
 static void
@@ -1021,7 +1071,9 @@ test_token_mismatch (void)
 }
 
 static void
-test_token_only (void)
+iter_token_only (const char *string,
+		 P11KitIterBehavior behavior,
+		 int expected_count)
 {
 	CK_FUNCTION_LIST_PTR *modules;
 	P11KitIter *iter;
@@ -1033,10 +1085,13 @@ test_token_only (void)
 	modules = initialize_and_get_modules ();
 
 	uri = p11_kit_uri_new ();
-	ret = p11_kit_uri_parse ("pkcs11:manufacturer=TEST%20MANUFACTURER", P11_KIT_URI_FOR_TOKEN, uri);
+	ret = p11_kit_uri_parse (string, P11_KIT_URI_FOR_TOKEN, uri);
 	assert_num_eq (P11_KIT_URI_OK, ret);
 
-	iter = p11_kit_iter_new (uri, P11_KIT_ITER_WITH_TOKENS | P11_KIT_ITER_WITHOUT_OBJECTS);
+	iter = p11_kit_iter_new (uri,
+				 behavior |
+				 P11_KIT_ITER_WITH_TOKENS |
+				 P11_KIT_ITER_WITHOUT_OBJECTS);
 	p11_kit_uri_free (uri);
 
 	p11_kit_iter_begin (iter, modules);
@@ -1050,12 +1105,36 @@ test_token_only (void)
 
 	assert (rv == CKR_CANCEL);
 
-	/* Three modules, each with 1 slot, and 3 public objects */
-	assert_num_eq (3, count);
+	assert_num_eq (expected_count, count);
 
 	p11_kit_iter_free (iter);
 
 	finalize_and_free_modules (modules);
+}
+
+static void
+test_token_only (void)
+{
+	/* Three modules, each with 1 slot, and 3 public objects */
+	iter_token_only ("pkcs11:manufacturer=TEST%20MANUFACTURER", 0, 3);
+}
+
+static void
+test_token_only_with_login (void)
+{
+	int called = 0;
+
+	p11_kit_pin_register_callback ("my-pin-source", login_callback,
+	                               &called, NULL);
+
+	/* Three modules, each with 1 slot, and 3 public objects */
+	iter_token_only ("pkcs11:manufacturer=TEST%20MANUFACTURER"
+			 "?pin-source=my-pin-source",
+			 P11_KIT_ITER_WITH_LOGIN, 3);
+
+	assert_num_eq (3, called);
+
+	p11_kit_pin_unregister_callback ("my-pin-source", login_callback, NULL);
 }
 
 static void
@@ -1615,6 +1694,66 @@ test_exhaustive_match (void)
 	}
 }
 
+static void
+test_profile (void)
+{
+	CK_OBJECT_HANDLE objects[128] = { 0 };
+	CK_SESSION_HANDLE session;
+	CK_FUNCTION_LIST_PTR module;
+	CK_SLOT_ID slot;
+	P11KitIter *iter;
+	CK_RV rv;
+	int at;
+
+	mock_module_reset ();
+	rv = mock_module_v3.C_Initialize (NULL);
+	assert_num_eq (rv, CKR_OK);
+
+	rv = mock_C_OpenSession (MOCK_SLOT_ONE_ID, CKF_SERIAL_SESSION, NULL, NULL, &session);
+	assert_num_eq (rv, CKR_OK);
+
+	mock_module_add_profile (MOCK_SLOT_ONE_ID, CKP_PUBLIC_CERTIFICATES_TOKEN);
+
+	iter = p11_kit_iter_new (NULL, 0);
+	p11_kit_iter_begin_with (iter, (CK_FUNCTION_LIST *)&mock_module_v3, 0, session);
+
+	at = 0;
+	while ((rv = p11_kit_iter_next (iter)) == CKR_OK) {
+		assert (at < 128);
+		objects[at] = p11_kit_iter_get_object (iter);
+
+		slot = p11_kit_iter_get_slot (iter);
+		assert (slot == MOCK_SLOT_ONE_ID);
+
+		module = p11_kit_iter_get_module (iter);
+		assert_ptr_eq (module, &mock_module_v3);
+
+		assert (session == p11_kit_iter_get_session (iter));
+		at++;
+	}
+
+	assert (rv == CKR_CANCEL);
+
+	/* 1 modules, each with 1 slot, and 3 public objects and profile object*/
+	assert_num_eq (4, at);
+
+	assert (has_handle (objects, at, MOCK_DATA_OBJECT));
+	assert (!has_handle (objects, at, MOCK_PRIVATE_KEY_CAPITALIZE));
+	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_CAPITALIZE));
+	assert (!has_handle (objects, at, MOCK_PRIVATE_KEY_PREFIX));
+	assert (has_handle (objects, at, MOCK_PUBLIC_KEY_PREFIX));
+	assert (has_handle (objects, at, MOCK_PROFILE_OBJECT));
+
+	p11_kit_iter_free (iter);
+
+	/* The session is still valid ... */
+	rv = mock_module_v3.C_CloseSession (session);
+	assert (rv == CKR_OK);
+
+	rv = mock_module_v3.C_Finalize (NULL);
+	assert (rv == CKR_OK);
+}
+
 int
 main (int argc,
       char *argv[])
@@ -1636,9 +1775,11 @@ main (int argc,
 	p11_test (test_with_module, "/iter/test_with_module");
 	p11_test (test_keep_session, "/iter/test_keep_session");
 	p11_test (test_token_match, "/iter/test_token_match");
+	p11_test (test_token_match_with_login, "/iter/test_token_match_with_login");
 	p11_test (test_token_mismatch, "/iter/test_token_mismatch");
 	p11_test (test_token_info, "/iter/token-info");
 	p11_test (test_token_only, "/iter/test_token_only");
+	p11_test (test_token_only_with_login, "/iter/test_token_only_with_login");
 	p11_test (test_slot_match, "/iter/test_slot_match");
 	p11_test (test_slot_mismatch, "/iter/test_slot_mismatch");
 	p11_test (test_slot_match_by_id, "/iter/test_slot_match_by_id");
@@ -1662,6 +1803,7 @@ main (int argc,
 	p11_testx (test_many, "busy-sessions", "/iter/test-many-busy");
 	p11_test (test_destroy_object, "/iter/destroy-object");
 	p11_test (test_exhaustive_match, "/iter/test_exhaustive_match");
+	p11_test (test_profile, "/iter/test_profile");
 
 	return p11_test_run (argc, argv);
 }

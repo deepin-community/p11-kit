@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2008 Stefan Walter
  * Copyright (C) 2011 Collabora Ltd.
- * Copyright (C) 2017 Red Hat, Inc.
+ * Copyright (C) 2017-2023 Red Hat, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -188,6 +188,7 @@ const char *p11_config_user_file = P11_USER_CONFIG_FILE;
 const char *p11_config_package_modules = P11_PACKAGE_CONFIG_MODULES;
 const char *p11_config_system_modules = P11_SYSTEM_CONFIG_MODULES;
 const char *p11_config_user_modules = P11_USER_CONFIG_MODULES;
+const char *p11_module_path = P11_MODULE_PATH;
 
 /* -----------------------------------------------------------------------------
  * P11-KIT FUNCTIONALITY
@@ -359,9 +360,12 @@ dlopen_and_get_function_list (Module *mod,
                               CK_FUNCTION_LIST **funcs)
 {
 	CK_C_GetFunctionList gfl;
+	CK_C_GetInterface gi;
+	CK_INTERFACE *interface;
 	dl_module_t dl;
 	char *error;
 	CK_RV rv;
+	int fallback = 0;
 
 	assert (mod != NULL);
 	assert (path != NULL);
@@ -379,20 +383,48 @@ dlopen_and_get_function_list (Module *mod,
 	mod->loaded_destroy = (p11_kit_destroyer)p11_dl_close;
 	mod->loaded_module = dl;
 
-	gfl = p11_dl_symbol (dl, "C_GetFunctionList");
-	if (!gfl) {
-		error = p11_dl_error ();
-		p11_message (_("couldn't find C_GetFunctionList entry point in module: %s: %s"),
-		             path, error);
-		free (error);
-		return CKR_GENERAL_ERROR;
+	gi = p11_dl_symbol (dl, "C_GetInterface");
+
+#ifndef OS_WIN32
+	if (gi == C_GetInterface)
+		gi = NULL;
+#endif
+
+	if (gi) {
+		/* Get the default standard interface */
+		rv = gi ((unsigned char *)"PKCS 11", NULL, &interface, 0);
+		switch (rv) {
+		case CKR_FUNCTION_NOT_SUPPORTED:
+			fallback = 1;
+			break;
+		case CKR_OK:
+			/* TODO check the version and flag it somehere? */
+			*funcs = interface->pFunctionList;
+			break;
+		default:
+			p11_message (_("call to C_GetInterface failed in module: %s: %s"),
+				     path, p11_kit_strerror (rv));
+			return rv;
+		}
 	}
 
-	rv = gfl (funcs);
-	if (rv != CKR_OK) {
-		p11_message (_("call to C_GetFunctiontList failed in module: %s: %s"),
-		             path, p11_kit_strerror (rv));
-		return rv;
+	if (!gi || fallback) {
+		p11_debug ("C_GetInterface not available. Falling back to C_GetFunctionList()");
+
+		gfl = p11_dl_symbol (dl, "C_GetFunctionList");
+		if (!gfl) {
+			error = p11_dl_error ();
+			p11_message (_("couldn't find C_GetFunctionList entry point in module: %s: %s"),
+				     path, error);
+			free (error);
+			return CKR_GENERAL_ERROR;
+		}
+		rv = gfl (funcs);
+		if (rv != CKR_OK) {
+			p11_message (_("call to C_GetFunctiontList failed in module: %s: %s"),
+				     path, p11_kit_strerror (rv));
+			return rv;
+		}
 	}
 
 	if (p11_proxy_module_check (*funcs)) {
@@ -423,8 +455,8 @@ load_module_from_file_inlock (const char *name,
 	return_val_if_fail (mod != NULL, CKR_HOST_MEMORY);
 
 	if (!p11_path_absolute (path)) {
-		p11_debug ("module path is relative, loading from: %s", P11_MODULE_PATH);
-		path = expand = p11_path_build (P11_MODULE_PATH, path, NULL);
+		p11_debug ("module path is relative, loading from: %s", p11_module_path);
+		path = expand = p11_path_build (p11_module_path, path, NULL);
 		return_val_if_fail (path != NULL, CKR_HOST_MEMORY);
 	}
 
@@ -638,6 +670,34 @@ out:
 	return rv;
 }
 
+#ifdef P11_ENV_OVERRIDE_PATHS
+/**
+ * p11_get_paths_from_env:
+ *
+ * Adjusts various configuration paths and files, so that they
+ * can be changed at run-time, based on system environment variables
+ *
+ */
+static void
+p11_get_paths_from_env (void)
+{
+	char *path;
+
+	if ((path = secure_getenv ("P11_SYSTEM_CONFIG_FILE")))
+		p11_config_system_file = path;
+	if ((path = secure_getenv ("P11_USER_CONFIG_FILE")))
+		p11_config_user_file = path;
+	if ((path = secure_getenv ("P11_PACKAGE_CONFIG_MODULES")))
+		p11_config_package_modules = path;
+	if ((path = secure_getenv ("P11_SYSTEM_CONFIG_MODULES")))
+		p11_config_system_modules = path;
+	if ((path = secure_getenv ("P11_USER_CONFIG_MODULES")))
+		p11_config_user_modules = path;
+	if ((path = secure_getenv ("P11_MODULE_PATH")))
+		p11_module_path = path;
+}
+#endif
+
 static CK_RV
 load_registered_modules_unlocked (int flags)
 {
@@ -650,6 +710,10 @@ load_registered_modules_unlocked (int flags)
 	CK_RV rv;
 	bool critical;
 	bool verbose;
+
+#ifdef P11_ENV_OVERRIDE_PATHS
+	p11_get_paths_from_env ();
+#endif
 
 	if (gl.config)
 		return CKR_OK;
@@ -2168,10 +2232,14 @@ p11_kit_modules_initialize (CK_FUNCTION_LIST **modules,
 				name = strdup ("(unknown)");
 			return_val_if_fail (name != NULL, CKR_HOST_MEMORY);
 			critical = (p11_kit_module_get_flags (modules[i]) & P11_KIT_MODULE_CRITICAL);
-			p11_message (_("%s: module failed to initialize%s: %s"),
-			             name, critical ? "" : ", skipping", p11_kit_strerror (rv));
-			if (critical)
+			if (critical) {
 				ret = rv;
+				p11_message (_("%s: module failed to initialize: %s"),
+					     name, p11_kit_strerror (rv));
+			} else {
+				p11_message (_("%s: module failed to initialize, skipping: %s"),
+					     name, p11_kit_strerror (rv));
+			}
 			if (failure_callback)
 				failure_callback (modules[i]);
 			out--;

@@ -8,13 +8,8 @@ check_LTLIBRARIES += \
 	$(NULL)
 
 libtrust_data_la_SOURCES = \
-	trust/asn1.c trust/asn1.h \
-	trust/base64.c trust/base64.h \
-	trust/pem.c trust/pem.h \
-	trust/oid.c trust/oid.h \
 	trust/utf8.c trust/utf8.h \
 	trust/x509.c trust/x509.h \
-	$(asn_h) \
 	$(NULL)
 
 libtrust_data_la_CFLAGS = \
@@ -30,12 +25,10 @@ TRUST_SRCS = \
 	trust/digest.c trust/digest.h \
 	trust/index.c trust/index.h \
 	trust/parser.c trust/parser.h \
-	trust/persist.c trust/persist.h \
 	trust/module.c trust/module.h \
 	trust/save.c trust/save.h \
 	trust/session.c trust/session.h \
 	trust/token.c trust/token.h \
-	trust/types.h \
 	$(NULL)
 
 configdir = $(p11_package_config_modules)
@@ -53,6 +46,7 @@ p11_kit_trust_la_CFLAGS = \
 p11_kit_trust_la_LIBADD = \
 	libtrust-data.la \
 	libp11-library.la \
+	libp11-asn1.la \
 	libp11-common.la \
 	$(LIBTASN1_LIBS) \
 	$(HASH_LIBS) \
@@ -85,6 +79,7 @@ bin_PROGRAMS += trust/trust
 trust_trust_LDADD = \
 	libtrust-data.la \
 	libp11-kit.la \
+	libp11-asn1.la \
 	libp11-common.la \
 	libp11-tool.la \
 	$(LTLIBINTL) \
@@ -101,7 +96,6 @@ trust_trust_CFLAGS = \
 trust_trust_SOURCES = \
 	trust/anchor.c trust/anchor.h \
 	trust/parser.c trust/parser.h \
-	trust/persist.c trust/persist.h \
 	trust/digest.c trust/digest.h \
 	trust/dump.c trust/dump.h \
 	trust/enumerate.c trust/enumerate.h \
@@ -113,8 +107,8 @@ trust_trust_SOURCES = \
 	trust/extract-cer.c \
 	trust/list.c trust/list.h \
 	trust/save.c trust/save.h \
+	trust/check-format.c trust/check-format.h \
 	trust/trust.c \
-	$(asn_h) \
 	$(NULL)
 
 externaldir = $(privatedir)
@@ -130,22 +124,6 @@ EXTRA_DIST += \
 	trust/p11-kit-trust.module \
 	trust/meson.build
 
-SUFFIXES += .asn .asn.h
-.asn.asn.h:
-	$(AM_V_GEN)$(ASN1PARSER) -o $@ $<
-
-asn_h = \
-	trust/basic.asn.h \
-	trust/openssl.asn.h \
-	trust/pkix.asn.h
-
-BUILT_SOURCES += $(asn_h)
-
-EXTRA_DIST += \
-	trust/basic.asn \
-	trust/openssl.asn \
-	trust/pkix.asn
-
 # Tests ----------------------------------------------------------------
 
 trust_CFLAGS = \
@@ -159,6 +137,7 @@ trust_LIBS = \
 	libp11-kit.la \
 	libp11-library.la \
 	libp11-test.la \
+	libp11-asn1.la \
 	libp11-common.la \
 	$(LIBTASN1_LIBS) \
 	$(HASH_LIBS) \
@@ -174,7 +153,6 @@ libtrust_test_la_SOURCES = \
 
 c_tests += \
 	test-digest \
-	test-asn1 \
 	test-base64 \
 	test-pem \
 	test-oid \
@@ -194,10 +172,6 @@ c_tests += \
 	test-edk2 \
 	test-jks \
 	$(NULL)
-
-test_asn1_SOURCES = trust/test-asn1.c
-test_asn1_LDADD = $(trust_LIBS)
-test_asn1_CFLAGS = $(trust_CFLAGS)
 
 test_base64_SOURCES = trust/test-base64.c
 test_base64_LDADD = $(trust_LIBS)
@@ -230,10 +204,6 @@ test_index_CFLAGS = $(trust_CFLAGS)
 test_module_SOURCES = trust/test-module.c
 test_module_LDADD = $(trust_LIBS)
 test_module_CFLAGS = $(trust_CFLAGS)
-
-test_oid_SOURCES = trust/test-oid.c
-test_oid_LDADD = $(trust_LIBS)
-test_oid_CFLAGS = $(trust_CFLAGS)
 
 test_openssl_SOURCES = trust/test-openssl.c
 test_openssl_LDADD = $(trust_LIBS)
@@ -322,13 +292,7 @@ frob_token_SOURCES = trust/frob-token.c
 frob_token_LDADD = $(trust_LIBS)
 frob_token_CFLAGS = $(trust_CFLAGS)
 
-noinst_SCRIPTS += trust/test-extract.sh trust/test-trust.sh
-
-if !OS_WIN32
-installcheck-local:
-	builddir="$(abs_top_builddir)/trust" $(SHELL) $(srcdir)/trust/test-extract.sh
-	builddir="$(abs_top_builddir)/trust" $(SHELL) $(srcdir)/trust/test-trust.sh
-endif
+post_install_tests += trust/test-extract.sh trust/test-trust.sh
 
 EXTRA_DIST += \
 	trust/input \

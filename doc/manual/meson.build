@@ -60,7 +60,10 @@ if get_option('gtk_doc')
     'annotation-glossary.xml'
   ]
 
-  glib_prefix = dependency('glib-2.0').get_pkgconfig_variable('prefix')
+  glib_prefix = get_option('glib_prefix')
+  if glib_prefix == ''
+    glib_prefix = dependency('glib-2.0').get_variable(pkgconfig : 'prefix')
+  endif
   fixxref_args = [
     '--html-dir=' + (prefix / gnome.gtkdoc_html_dir(meson.project_name())),
     '--extra-dir=' + (glib_prefix / gnome.gtkdoc_html_dir('glib')),
@@ -70,7 +73,7 @@ if get_option('gtk_doc')
               main_xml: 'p11-kit-docs.xml',
               namespace: 'p11_kit',
               src_dir: 'p11-kit',
-              dependencies: libffi_deps + dlopen_deps + xml_deps,
+              dependencies: libffi_deps + dlopen_deps,
               scan_args: [
                 '--ignore-headers=' + ' '.join(ignore_headers),
                 '--rebuild-types',
