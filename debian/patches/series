@@ -1,4 +1,1 @@
-30_nogetauxvalonbsd.diff
-35_hurd_enable_secure.diff
-enable_locale.diff
-40_getpeereid_from_libbsd.diff
+36_enable_locale.diff

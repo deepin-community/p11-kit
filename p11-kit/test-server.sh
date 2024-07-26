@@ -1,62 +1,81 @@
 #!/bin/sh
 
-set -e
+test "${abs_top_builddir+set}" = set || {
+	echo "set abs_top_builddir" 1>&2
+	exit 1
+}
+
+. "$abs_top_builddir/common/test-init.sh"
 
 : ${P11_MODULE_PATH="$abs_top_builddir"/.libs}
 
-testdir=`mktemp -d -t test-server.XXXXXX`
-if test $? -ne 0; then
-	echo "cannot create temporary directory" >&2
-	exit 77
-fi
+setup() {
+	testdir=`mktemp -d -t test-server.XXXXXX`
+	if test $? -ne 0; then
+		echo "cannot create temporary directory" >&2
+		exit 77
+	fi
+	cd "$testdir"
 
-cleanup () {
-	rm -rf "$testdir"
+	unset P11_KIT_SERVER_ADDRESS
+	unset P11_KIT_SERVER_PID
+
+	export XDG_RUNTIME_DIR="$testdir"
+	export P11_KIT_PRIVATEDIR="${abs_top_builddir}/p11-kit"
+	export ASAN_OPTIONS="verify_asan_link_order=0"
 }
-trap cleanup 0
 
-cd "$testdir"
+teardown() {
+	rm -rf "$testdir"
+	if test "${P11_KIT_SERVER_PID+set}" = "set"; then
+		kill "$P11_KIT_SERVER_PID"
+	fi
+}
 
-unset P11_KIT_SERVER_ADDRESS
-unset P11_KIT_SERVER_PID
+test_server_access() {
+	"$abs_top_builddir"/p11-kit/p11-kit-server-testable -s --provider "$P11_MODULE_PATH"/mock-one.so pkcs11: > start.env 2> start.err
+	if test $? -ne 0; then
+		sed 's/^/# /' start.err
+		assert_fail "unable to start server"
+	fi
 
-XDG_RUNTIME_DIR="$testdir"
-export XDG_RUNTIME_DIR
+	. ./start.env
 
-echo 1..4
+	if test "${P11_KIT_SERVER_ADDRESS-unset}" = "unset"; then
+		assert_fail "P11_KIT_SERVER_ADDRESS is not set"
+	fi
 
-"$abs_top_builddir"/p11-kit/p11-kit-server -s --provider "$P11_MODULE_PATH"/mock-one.so pkcs11: > start.env 2> start.err
-if test $? -eq 0; then
-	echo "ok 1 /server/start"
-else
-	echo "not ok 1 /server/start"
-	sed 's/^/# /' start.err
-	exit 1
-fi
+	if test "${P11_KIT_SERVER_PID-unset}" = "unset"; then
+		assert_fail "P11_KIT_SERVER_PID is not set"
+	fi
 
-. ./start.env
+	: ${P11TOOL=p11tool}
+	if "$P11TOOL" --version > /dev/null; then
+		"$P11TOOL" --provider "$P11_MODULE_PATH"/p11-kit-client.so --list-tokens > /dev/null 2> p11tool.err
+		if test $? -ne 0; then
+			sed 's/^/# /' p11tool.err
+			assert_fail "unable to access server"
+		fi
+	else
+		skip "p11tool not found"
+		return
+	fi
 
-if test "${P11_KIT_SERVER_ADDRESS+set}" = "set" -a "${P11_KIT_SERVER_PID+set}" = "set"; then
-	echo "ok 2 /server/start-env"
-else
-	echo "not ok 2 /server/start-env"
-	exit 1
-fi
+	"$abs_top_builddir"/p11-kit/p11-kit-server-testable -s -k > stop.env 2> stop.err
+	if test $? -ne 0; then
+		sed 's/^/# /' stop.err
+		assert_fail "unable to stop server"
+	fi
 
-"$abs_top_builddir"/p11-kit/p11-kit-server -s -k > stop.env 2> stop.err
-if test $? -eq 0; then
-	echo "ok 3 /server/stop"
-else
-	echo "not ok 3 /server/stop"
-	sed 's/^/# /' stop.err
-	exit 1
-fi
+	. ./stop.env
 
-. ./stop.env
+	if test "${P11_KIT_SERVER_ADDRESS+set}" = "set"; then
+		assert_fail "P11_KIT_SERVER_ADDRESS is still set"
+	fi
 
-if test "${P11_KIT_SERVER_ADDRESS-unset}" = "unset" -a "${P11_KIT_SERVER_PID-unset}" = "unset"; then
-	echo "ok 4 /server/stop-env"
-else
-	echo "not ok 4 /server/stop-env"
-	exit 1
-fi
+	if test "${P11_KIT_SERVER_PID+set}" = "set"; then
+		assert_fail "P11_KIT_SERVER_PID is still set"
+	fi
+}
+
+run test_server_access

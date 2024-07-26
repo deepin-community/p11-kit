@@ -1,42 +1,18 @@
 libtrust_data_sources = [
-  'asn1.c',
-  'base64.c',
-  'pem.c',
-  'oid.c',
   'utf8.c',
   'x509.c'
 ]
 
-basic_asn_h = custom_target('basic.asn.h',
-                            output: 'basic.asn.h',
-                            input: 'basic.asn',
-                            command: [asn1Parser, '-o', '@OUTPUT@', '@INPUT@'])
-
-pkix_asn_h = custom_target('pkix.asn.h',
-                           output: 'pkix.asn.h',
-                           input: 'pkix.asn',
-                           command: [asn1Parser, '-o', '@OUTPUT@', '@INPUT@'])
-
-openssl_asn_h = custom_target('openssl.asn.h',
-                            output: 'openssl.asn.h',
-                            input: 'openssl.asn',
-                            command: [asn1Parser, '-o', '@OUTPUT@', '@INPUT@'])
-
-asn_h_dep = declare_dependency(
-  sources: [basic_asn_h, pkix_asn_h, openssl_asn_h]
-)
-
 libtrust_data = static_library('libtrust-data',
                                libtrust_data_sources,
                                include_directories: [configinc, commoninc],
-                               dependencies: [asn_h_dep] + libtasn1_deps)
+                               dependencies: libp11_asn1_deps)
 
 libtrust_sources = [
   'builder.c',
   'digest.c',
   'index.c',
   'parser.c',
-  'persist.c',
   'module.c',
   'save.c',
   'session.c',
@@ -56,12 +32,10 @@ shared_module('p11-kit-trust',
               'module-init.c',
               name_prefix: '',
               c_args: p11_kit_trust_c_args,
-              dependencies: [asn_h_dep, libp11_library_dep] + dlopen_deps + libtasn1_deps,
+              dependencies: [libp11_library_dep] + libp11_asn1_deps + dlopen_deps,
               link_args: p11_module_ldflags,
-              link_depends: [p11_module_symbol_map,
-                             p11_module_symbol_def],
+              link_depends: [p11_module_symbol_map],
               link_with: libtrust_data,
-              vs_module_defs: p11_module_symbol_def,
               install: true,
               install_dir: prefix / p11_module_path)
 
@@ -80,8 +54,8 @@ endif
 
 trust_sources = [
   'anchor.c',
+  'check-format.c',
   'parser.c',
-  'persist.c',
   'digest.c',
   'dump.c',
   'enumerate.c',
@@ -102,7 +76,7 @@ executable('trust',
            link_with: libtrust_data,
            dependencies: [asn_h_dep,
                           libp11_kit_dep,
-                          libp11_tool_dep] + libffi_deps + dlopen_deps + libtasn1_deps,
+                          libp11_tool_dep] + libintl_deps + libffi_deps + dlopen_deps + libtasn1_deps,
            install: true)
 
 install_data('trust-extract-compat',
@@ -122,10 +96,8 @@ if get_option('test')
 
   trust_tests = [
     'test-digest',
-    'test-asn1',
     'test-base64',
     'test-pem',
-    'test-oid',
     'test-utf8',
     'test-x509',
     'test-persist',
@@ -143,12 +115,23 @@ if get_option('test')
     'test-jks'
   ]
 
+  # Some tests fail to link on macOS because they need p11_library_mutex, but
+  # it isn't included unless libp11_kit_testable is linked with
+  # -Wl,--whole-archive or -Wl,-force_load.
+  trust_tests_whole = [
+    'test-index',
+    'test-builder',
+    'test-token'
+  ]
+
   foreach name : trust_tests
     t = executable(name, '@0@.c'.format(name),
                    c_args: common_c_args + tests_c_args + libtrust_testable_c_args,
                    dependencies: [asn_h_dep,
                                   libp11_kit_dep,
-                                  libp11_library_dep,
+                                  trust_tests_whole.contains(name) ?
+                                    libp11_library_whole_dep :
+                                    libp11_library_dep,
                                   libp11_test_dep] + libtasn1_deps + dlopen_deps,
                    link_with: [libtrust_testable, libtrust_data, libtrust_test])
     test(name, t)
@@ -166,13 +149,41 @@ if get_option('test')
     'frob-oid'
   ]
 
+  # Some tests fail to link on macOS because they need p11_library_mutex, but
+  # it isn't included unless libp11_kit_testable is linked with
+  # -Wl,--whole-archive or -Wl,-force_load.
+  trust_progs_whole = [
+    'frob-token'
+  ]
+
   foreach name : trust_progs
     t = executable(name, '@0@.c'.format(name),
                    c_args: tests_c_args,
                    dependencies: [asn_h_dep,
                                   libp11_kit_dep,
-                                  libp11_library_dep,
-                                  libp11_test_dep] + libffi_deps + dlopen_deps,
+                                  trust_progs_whole.contains(name) ?
+                                    libp11_library_whole_dep :
+                                    libp11_library_dep,
+                                  libp11_test_dep] + libtasn1_deps + libffi_deps + dlopen_deps,
                    link_with: [libtrust_testable, libtrust_data, libtrust_test])
   endforeach
+
+  if get_option('post_install_test') and host_system != 'windows'
+    # TODO: this cannot run under meson, as it installs a placeholder
+    # extract-compat script and there is no way to replace it.
+    #
+    # meson.add_install_script(
+    #   top_source_dir / 'meson_post_install_test.sh',
+    #   bindir,
+    #   libdir,
+    #   find_program('test-extract.sh'),
+    # )
+
+    meson.add_install_script(
+      top_source_dir / 'meson_post_install_test.sh',
+      bindir,
+      libdir,
+      find_program('test-trust.sh'),
+    )
+  endif
 endif

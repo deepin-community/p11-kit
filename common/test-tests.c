@@ -53,9 +53,14 @@ test_failure (void)
 	}
 }
 
+#ifndef WITH_STRICT
+
 static void
 test_memory (void)
 {
+#ifdef __clang_analyzer__
+	assert_skip ("cannot perform test with clang-analyzer build", NULL);
+#else
 	char *mem;
 
 	if (getenv ("TEST_FAIL")) {
@@ -65,12 +70,17 @@ test_memory (void)
 		/* cppcheck-suppress deallocuse */
 		*mem = 1;
 	}
+#endif	/* __clang_analyzer__ */
 }
 
+#endif /* WITH_STRICT */
 
 static void
 test_leak (void)
 {
+#ifdef __clang_analyzer__
+	assert_skip ("cannot perform test with clang-analyzer build", NULL);
+#else
 	char *mem;
 
 	if (getenv ("TEST_FAIL")) {
@@ -79,6 +89,7 @@ test_leak (void)
 		*mem = 1;
 	}
 	/* cppcheck-suppress memleak */
+#endif	/* __clang_analyzer__ */
 }
 
 int
@@ -89,7 +100,9 @@ main (int argc,
 
 	if (getenv ("TEST_FAIL")) {
 		p11_test (test_failure, "/test/failure");
+#ifndef WITH_STRICT
 		p11_test (test_memory, "/test/memory");
+#endif /* WITH_STRICT */
 		p11_test (test_leak, "/test/leak");
 	}
 

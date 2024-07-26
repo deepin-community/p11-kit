@@ -114,6 +114,8 @@ const p11_constant p11_constant_types[] = {
 	CT (CKA_ALWAYS_SENSITIVE, "always-sensitive")
 	CT (CKA_KEY_GEN_MECHANISM, "key-gen-mechanism")
 	CT (CKA_MODIFIABLE, "modifiable")
+	CT (CKA_COPYABLE, "copyable")
+	CT (CKA_DESTROYABLE, "destroyable")
 	CT (CKA_ECDSA_PARAMS, "ecdsa-params")
 	/* CT (CKA_EC_PARAMS) */
 	CT (CKA_EC_POINT, "ec-point")
@@ -138,9 +140,32 @@ const p11_constant p11_constant_types[] = {
 	CT (CKA_REQUIRED_CMS_ATTRIBUTES, "required-cms-attributes")
 	CT (CKA_DEFAULT_CMS_ATTRIBUTES, "default-cms-attributes")
 	CT (CKA_SUPPORTED_CMS_ATTRIBUTES, "supported-cms-attributes")
+	CT (CKA_PROFILE_ID, "profile-id")
 	CT (CKA_WRAP_TEMPLATE, "wrap-template")
 	CT (CKA_UNWRAP_TEMPLATE, "unwrap-template")
 	CT (CKA_ALLOWED_MECHANISMS, "allowed-mechanisms")
+	CT (CKA_IBM_OPAQUE, "ibm-opaque")
+	CT (CKA_IBM_RESTRICTABLE, "ibm-restrictable")
+	CT (CKA_IBM_NEVER_MODIFIABLE, "ibm-never-modifiable")
+	CT (CKA_IBM_RETAINKEY, "ibm-retainkey")
+	CT (CKA_IBM_ATTRBOUND, "ibm-attrbound")
+	CT (CKA_IBM_KEYTYPE, "ibm-keytype")
+	CT (CKA_IBM_CV, "ibm-cv")
+	CT (CKA_IBM_MACKEY, "ibm-mackey")
+	CT (CKA_IBM_USE_AS_DATA, "ibm-use-as-data")
+	CT (CKA_IBM_STRUCT_PARAMS, "ibm-struct-params")
+	CT (CKA_IBM_STD_COMPLIANCE1, "ibm-std_compliance1")
+	CT (CKA_IBM_PROTKEY_EXTRACTABLE, "ibm-protkey-extractable")
+	CT (CKA_IBM_PROTKEY_NEVER_EXTRACTABLE, "ibm-protkey-never-extractable")
+	CT (CKA_IBM_DILITHIUM_KEYFORM, "ibm-dilithium-keyform")
+	CT (CKA_IBM_DILITHIUM_RHO, "ibm-dilithium-rho")
+	CT (CKA_IBM_DILITHIUM_SEED, "ibm-dilithium-seed")
+	CT (CKA_IBM_DILITHIUM_TR, "ibm-dilithium-tr")
+	CT (CKA_IBM_DILITHIUM_S1, "ibm-dilithium-s1")
+	CT (CKA_IBM_DILITHIUM_S2, "ibm-dilithium-s2")
+	CT (CKA_IBM_DILITHIUM_T0, "ibm-dilithium-t0")
+	CT (CKA_IBM_DILITHIUM_T1, "ibm-dilithium-t1")
+	CT (CKA_IBM_OPAQUE_PKEY, "ibm-opaque-pkey")
 	CT (CKA_NSS_URL, "nss-url")
 	CT (CKA_NSS_EMAIL, "nss-email")
 	CT (CKA_NSS_SMIME_INFO, "nss-smime-constant")
@@ -193,6 +218,7 @@ const p11_constant p11_constant_classes[] = {
 	CT (CKO_HW_FEATURE, "hw-feature")
 	CT (CKO_DOMAIN_PARAMETERS, "domain-parameters")
 	CT (CKO_MECHANISM, "mechanism")
+	CT (CKO_PROFILE, "profile")
 	CT (CKO_NSS_CRL, "nss-crl")
 	CT (CKO_NSS_SMIME, "nss-smime")
 	CT (CKO_NSS_TRUST, "nss-trust")
@@ -247,6 +273,7 @@ const p11_constant p11_constant_keys[] = {
 	CT (CKK_AES, "aes")
 	CT (CKK_BLOWFISH, "blowfish")
 	CT (CKK_TWOFISH, "twofish")
+	CT (CKK_IBM_PQC_DILITHIUM, "ibm-dilithium")
 	CT (CKK_NSS_PKCS8, "nss-pkcs8")
 	{ CKA_INVALID },
 };
@@ -595,6 +622,38 @@ const p11_constant p11_constant_mechanisms[] = {
 	CT (CKM_DSA_PARAMETER_GEN, "dsa-parameter-gen")
 	CT (CKM_DH_PKCS_PARAMETER_GEN, "dh-pkcs-parameter-gen")
 	CT (CKM_X9_42_DH_PARAMETER_GEN, "x9-42-dh-parameter-gen")
+	CT (CKM_IBM_SHA3_224, "ibm-sha3-224")
+	CT (CKM_IBM_SHA3_256, "ibm-sha3-256")
+	CT (CKM_IBM_SHA3_384, "ibm-sha3-384")
+	CT (CKM_IBM_SHA3_512, "ibm-sha3-512")
+	CT (CKM_IBM_CMAC, "ibm-cmac")
+	CT (CKM_IBM_EC_X25519, "ibm-ec-x25519")
+	CT (CKM_IBM_ED25519_SHA512, "ibm-ed25519-sha512")
+	CT (CKM_IBM_EC_X448, "ibm-ec-x448")
+	CT (CKM_IBM_ED448_SHA3, "ibm-ed448-sha3")
+	CT (CKM_IBM_DILITHIUM, "ibm-dilithium")
+	CT (CKM_IBM_SHA3_224_HMAC, "ibm-sha3-224-hmac")
+	CT (CKM_IBM_SHA3_256_HMAC, "ibm-sha3-256-hmac")
+	CT (CKM_IBM_SHA3_384_HMAC, "ibm-sha3-384-hmac")
+	CT (CKM_IBM_SHA3_512_HMAC, "ibm-sha3-512-hmac")
+	CT (CKM_IBM_ATTRIBUTEBOUND_WRAP, "ibm-attributebound-wrap")
+	{ CKA_INVALID },
+};
+
+const p11_constant p11_constant_hw_features[] = {
+	CT (CKH_MONOTONIC_COUNTER, "monotonic-counter")
+	CT (CKH_CLOCK, "clock")
+	CT (CKH_USER_INTERFACE, "user-interface")
+	CT (CKH_VENDOR_DEFINED, "vendor-defined")
+	{ CKA_INVALID },
+};
+
+const p11_constant p11_constant_profiles[] = {
+	CT (CKP_BASELINE_PROVIDER, "baseline-provider")
+	CT (CKP_EXTENDED_PROVIDER, "extended-provider")
+	CT (CKP_AUTHENTICATION_TOKEN, "authentication-token")
+	CT (CKP_PUBLIC_CERTIFICATES_TOKEN, "public-certificates-token")
+	CT (CKP_VENDOR_DEFINED, "vendor-defined")
 	{ CKA_INVALID },
 };
 
@@ -615,6 +674,8 @@ struct {
 	{ p11_constant_states, ELEMS (p11_constant_states) - 1 },
 	{ p11_constant_users, ELEMS (p11_constant_users) - 1 },
 	{ p11_constant_returns, ELEMS (p11_constant_returns) - 1 },
+	{ p11_constant_hw_features, ELEMS (p11_constant_hw_features) - 1 },
+	{ p11_constant_profiles, ELEMS (p11_constant_profiles) - 1 },
 };
 
 static int

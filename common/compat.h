@@ -37,8 +37,9 @@
 
 #include "config.h"
 
-#include <sys/types.h>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #ifdef HAVE_SYS_UN_H
 #  include <sys/un.h>
 #endif
@@ -352,10 +353,11 @@ time_t      timegm          (struct tm *tm);
 #ifdef HAVE_GETAUXVAL
 
 #include <sys/auxv.h>
+#define _p11_getauxval(X) getauxval(X)
 
 #else /* !HAVE_GETAUXVAL */
 
-unsigned long     getauxval (unsigned long type);
+unsigned long     _p11_getauxval (unsigned long type);
 
 #define AT_SECURE 23
 
@@ -363,20 +365,43 @@ unsigned long     getauxval (unsigned long type);
 
 char *            secure_getenv (const char *name);
 
-#ifndef HAVE_STRERROR_R
-
-int         strerror_r      (int errnum,
-                             char *buf,
-                             size_t buflen);
-
-#endif /* HAVE_STRERROR_R */
-
 #ifndef HAVE_FDWALK
 
 int        fdwalk           (int (* cb) (void *data, int fd),
                              void *data);
 
 #endif
+
+#ifdef HAVE_ISATTY
+
+#include <unistd.h>
+
+#else
+
+int        isatty           (int fd);
+
+#endif /* HAVE_ISATTY */
+
+#ifdef HAVE_READPASSPHRASE
+
+#include <readpassphrase.h>
+
+#else
+
+#define RPP_ECHO_OFF    0x00		/* Turn off echo (default). */
+#define RPP_ECHO_ON     0x01		/* Leave echo on. */
+#define RPP_REQUIRE_TTY 0x02		/* Fail if there is no tty. */
+#define RPP_FORCELOWER  0x04		/* Force input to lower case. */
+#define RPP_FORCEUPPER  0x08		/* Force input to upper case. */
+#define RPP_SEVENBIT    0x10		/* Strip the high bit from input. */
+#define RPP_STDIN       0x20		/* Read from stdin, not /dev/tty */
+
+char      *readpassphrase   (const char *prompt,
+                             char *buf,
+                             size_t bufsiz,
+                             int flags);
+
+#endif /* HAVE_READPASSPHRASE */
 
 /* If either locale_t or newlocale() is not available, strerror_l()
  * cannot be used */
@@ -391,7 +416,14 @@ int        fdwalk           (int (* cb) (void *data, int fd),
 
 #endif
 
-int        p11_ascii_tolower (int c);
-int        p11_ascii_toupper (int c);
+void       p11_strerror_r      (int errnum,
+                                char *buf,
+                                size_t buflen);
+
+int        p11_ascii_tolower   (int c);
+int        p11_ascii_toupper   (int c);
+
+bool       p11_ascii_strcaseeq (const char *s1,
+                                const char *s2);
 
 #endif /* __COMPAT_H__ */

@@ -5,11 +5,14 @@
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
+ifeq ($(filter nodoc,$(DEB_BUILD_PROFILES)),)
+	DOC = --enable-doc
+endif
 override_dh_auto_configure:
 	dh_auto_configure --verbose -- \
 		--disable-silent-rules \
 		--with-trust-paths=/etc/ssl/certs/ca-certificates.crt \
-		--with-hash-impl=internal --enable-doc
+		--with-hash-impl=internal --without-bash-completion $(DOC)
 
 override_dh_makeshlibs:
 	# Force keeping symbol file up to date.
@@ -20,9 +23,6 @@ override_dh_link:
 	rm -rf debian/libp11-kit0-dbg/usr/share/doc/libp11-kit0-dbg \
 		debian/p11-kit-modules/usr/share/doc/p11-kit-modules
 	dh_link
-
-override_dh_missing:
-	dh_missing --list-missing
 
 %:
 	dh $@

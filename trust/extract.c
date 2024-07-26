@@ -43,7 +43,7 @@
 #include "path.h"
 #include "pkcs11x.h"
 #include "save.h"
-#include "tool.h"
+#include "options.h"
 #include "digest.h"
 
 #include "p11-kit/iter.h"
@@ -315,13 +315,14 @@ p11_trust_extract_compat (int argc,
 	 * For compatibility with people who deployed p11-kit 0.18.x
 	 * before trust stuff was put into its own branch.
 	 */
-	path = p11_path_build (PRIVATEDIR, "p11-kit-extract-trust", NULL);
+	path = p11_path_build (PRIVATEDIR, "p11-kit-extract-trust" EXEEXT, NULL);
 	return_val_if_fail (path != NULL, 1);
 	execv (path, argv);
 	error = errno;
 
 	if (error == ENOENT) {
 		free (path);
+		/* "trust-extract-compat" is supposed to be a script, not a binary */
 		path = p11_path_build (PRIVATEDIR, "trust-extract-compat", NULL);
 		return_val_if_fail (path != NULL, 1);
 		execv (path, argv);

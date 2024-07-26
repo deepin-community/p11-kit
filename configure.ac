@@ -1,7 +1,7 @@
 AC_PREREQ(2.61)
 
 AC_INIT([p11-kit],
-	[0.24.0],
+	[0.25.5],
 	[https://github.com/p11-glue/p11-kit/issues],
 	[p11-kit],
 	[https://p11-glue.github.io/p11-glue/p11-kit.html])
@@ -13,9 +13,14 @@ AC_INIT([p11-kit],
 #   +1    :     0    :  0   == removed an interface. Breaks old apps.
 #    ?    :    +1    :  ?   == internal changes that doesn't break anything.
 
-P11KIT_CURRENT=3
-P11KIT_REVISION=0
-P11KIT_AGE=3
+P11KIT_CURRENT=4
+P11KIT_REVISION=1
+P11KIT_AGE=4
+
+# ------------------------------------------------------------------------------
+# p11-kit RPC protocol versions
+P11KIT_RPC_MIN=0
+P11KIT_RPC_MAX=1
 
 # ------------------------------------------------------------------------------
 
@@ -39,11 +44,27 @@ LT_INIT([dlopen disable-static])
 dnl Check if -Wl,--version-script is supported by the linker
 gl_LD_VERSION_SCRIPT
 
+dnl libp11-kit installs pthread_atfork to count forks in ELF
+dnl constructor, which could cause crash if the library is unloaded.
+dnl Use the linker flag "-z nodelete" to prevent unloading, if
+dnl available.
+SAVE_LDFLAGS="$LDFLAGS"
+LDFLAGS="$LDFLAGS -Wl,-z -Wl,nodelete"
+AC_MSG_CHECKING([whether linker understands -z nodelete])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([], [])],
+	       [LDFLAGS_Z_NODELETE="-Wl,-z -Wl,nodelete"; has_option=yes],
+	       [LDFLAGS_Z_NODELETE=""; has_option=no])
+AC_MSG_RESULT($has_option)
+LDFLAGS="$SAVE_LDFLAGS"
+AC_SUBST(LDFLAGS_Z_NODELETE)
+
 dnl Checks for programs.
 AC_PROG_CC
 AC_PROG_CPP
 AM_PROG_CC_C_O
 PKG_PROG_PKG_CONFIG
+AM_PATH_PYTHON([3.6],, [:])
+AM_MISSING_PROG([CASTXML], [castxml])
 
 LINGUAS=""
 AM_GNU_GETTEXT([external], [need-ngettext])
@@ -63,6 +84,12 @@ case "$host" in
 		os_win32=yes
 		os_unix=no
 		;;
+	*-*-linux*)
+		AC_DEFINE_UNQUOTED(OS_UNIX, 1, [Building for unix])
+		os_win32=no
+		os_unix=yes
+		os_linux=yes
+		;;
 	*)
 		AC_DEFINE_UNQUOTED(OS_UNIX, 1, [Building for unix])
 		os_win32=no
@@ -73,6 +100,15 @@ AC_MSG_RESULT([$os_win32])
 AM_CONDITIONAL(OS_WIN32, test "$os_win32" = "yes")
 
 AC_C_BIGENDIAN
+
+case "$host_os" in
+kfreebsd*-gnu | gnu*)
+	PKG_CHECK_MODULES([LIBBSD], [libbsd-overlay], [
+			   CFLAGS="$CFLAGS $LIBBSD_CFLAGS"
+			   LIBS="$LIBS $LIBBSD_LIBS"
+			   ], AC_MSG_WARN([libbsd-overlay not found but probably needed]))
+;;
+esac
 
 # ------------------------------------------------------------------------------
 # Checks for libraries and headers
@@ -114,8 +150,12 @@ if test "$os_unix" = "yes"; then
 	AC_CHECK_HEADERS([sys/resource.h sys/un.h ucred.h])
 	AC_CHECK_MEMBERS([struct dirent.d_type],,,[#include <dirent.h>])
 	AC_CHECK_FUNCS([getprogname getexecname basename mkstemp mkdtemp])
-	AC_CHECK_FUNCS([getauxval getresuid secure_getenv])
-	AC_CHECK_FUNCS([strnstr memdup strndup strerror_r])
+	AC_CHECK_FUNCS([getresuid secure_getenv])
+	if test "$os_linux" = "yes"; then
+		# Use getauxval on Linux only.
+		AC_CHECK_FUNCS([getauxval])
+	fi
+	AC_CHECK_FUNCS([strnstr memdup strndup])
 	AC_CHECK_FUNCS([reallocarray])
 	AC_CHECK_DECLS([reallocarray], [], [], [[#include <stdlib.h>]])
 	AC_CHECK_FUNCS([fdwalk])
@@ -123,13 +163,29 @@ if test "$os_unix" = "yes"; then
 	AC_CHECK_FUNCS([getpeereid])
 	AC_CHECK_FUNCS([getpeerucred])
 	AC_CHECK_FUNCS([issetugid])
+	AC_CHECK_FUNCS([isatty])
+	AC_CHECK_FUNCS([readpassphrase])
+	AM_CONDITIONAL([NEED_READPASSPHRASE], [test "$ac_cv_func_readpassphrase" != "yes"])
+
+	AC_CHECK_FUNC(
+		[strerror_r],
+		[AC_COMPILE_IFELSE(
+			[AC_LANG_PROGRAM([[#include <errno.h>
+					   #include <string.h>]],
+					 [[/* GNU strerror_r returns char *, XSI returns int */
+					    char buf[32];
+					    return *strerror_r (EINVAL, buf, 32);]])],
+			[AC_DEFINE([HAVE_GNU_STRERROR_R], 1, [Whether GNU-specific strerror_r() is available])],
+                        [AC_DEFINE([HAVE_XSI_STRERROR_R], 1, [Whether XSI-compliant strerror_r() is available])],
+			[])],
+		[])
 
 	AC_CACHE_CHECK([for thread-local storage class],
 		[ac_cv_tls_keyword],
 		[ac_cv_tls_keyword=
 		for keyword in _Thread_local __thread; do
 		AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <stdlib.h>]],
-			[[static ]$keyword[ foo;]])],
+			[[static ]$keyword[ int foo;]])],
 			[ac_cv_tls_keyword=$keyword])
 		done])
 	if test -n "$ac_cv_tls_keyword"; then
@@ -204,6 +260,15 @@ AC_ARG_WITH([module-path],
             [module_path=$withval],
             [module_path=$libdir/pkcs11])
 
+AC_ARG_ENABLE([env-override-paths],
+	AS_HELP_STRING([--enable-env-override-paths],
+	               [Override config and module paths via environment varibles [[default=no]]]),,
+              [enable_env_override_paths=no])
+
+if test x$enable_env_override_paths = xyes; then
+	AC_DEFINE_UNQUOTED(P11_ENV_OVERRIDE_PATHS, 1, [Enable environmental path overrides])
+fi
+
 # We expand these so we have concrete paths
 p11_system_config=$system_config_dir
 p11_system_config_file=$p11_system_config/pkcs11.conf
@@ -268,8 +333,8 @@ AC_ARG_WITH([closures],
 	    [closures=$withval],
 	    [closures=64])
 
-if test "$closures" -lt 1; then
-	AC_MSG_ERROR([at least one closure must be compiled in])
+if test "$with_libffi" != yes && test "$closures" -lt 1; then
+	AC_MSG_ERROR([libffi needs to be enabled or at least one closure must be compiled in])
 fi
 
 AC_DEFINE_UNQUOTED(P11_VIRTUAL_MAX_FIXED, [$closures], [the number of closures])
@@ -350,7 +415,7 @@ elif test "$enable_trust_module" != "yes"; then
 	AC_MSG_RESULT([disabled])
 
 # Option was not set, try to detect
-elif test "$with_trust_paths" = "" -o "$with_trust_paths" = "yes"; then
+elif test "$with_trust_paths" = "" || test "$with_trust_paths" = "yes"; then
 	with_trust_paths=""
 	for f in /etc/pki/tls/certs/ca-bundle.crt \
 		/etc/ssl/certs/ca-certificates.crt \
@@ -375,6 +440,35 @@ fi
 
 AC_DEFINE_UNQUOTED(TRUST_PATHS, ["$with_trust_paths"], [The trust module input paths])
 AC_SUBST(with_trust_paths)
+
+# --------------------------------------------------------------------
+# RPC
+
+AC_ARG_WITH([rpc-min],
+            [AS_HELP_STRING([--with-rpc-min], [Minimum RPC protocol version we support])],
+            [rpc_min=$withval],
+            [rpc_min=$P11KIT_RPC_MIN])
+
+AC_ARG_WITH([rpc-max],
+            [AS_HELP_STRING([--with-rpc-max], [Maximum RPC protocol version we support])],
+            [rpc_max=$withval],
+            [rpc_max=$P11KIT_RPC_MAX])
+
+AS_IF([test $rpc_min -lt $P11KIT_RPC_MIN || test $rpc_min -gt $P11KIT_RPC_MAX], [
+	AC_MSG_ERROR([Out of range version specified with --with-rpc-min])
+])
+
+AS_IF([test $rpc_max -lt $P11KIT_RPC_MIN || test $rpc_max -gt $P11KIT_RPC_MAX], [
+	AC_MSG_ERROR([Out of range version specified with --with-rpc-max])
+])
+
+AS_IF([test $rpc_min -gt $rpc_max], [
+	AC_MSG_ERROR([Conflicting versions specified with --with-rpc-min and --with-rpc-max])
+])
+
+AC_DEFINE_UNQUOTED(P11_RPC_PROTOCOL_VERSION_MINIMUM, $rpc_min, [Minimum RPC protocol version we support])
+
+AC_DEFINE_UNQUOTED(P11_RPC_PROTOCOL_VERSION_MAXIMUM, $rpc_max, [Maximum RPC protocol version we support])
 
 # --------------------------------------------------------------------
 # GTK Doc
@@ -544,11 +638,20 @@ AC_SUBST(GENHTML)
 P11KIT_LT_RELEASE=$P11KIT_CURRENT:$P11KIT_REVISION:$P11KIT_AGE
 AC_SUBST(P11KIT_LT_RELEASE)
 
-echo $PACKAGE_VERSION | tr '.' ' ' | while read major minor unused; do
-	AC_DEFINE_UNQUOTED(PACKAGE_MAJOR, $major, [Major version of package])
-	AC_DEFINE_UNQUOTED(PACKAGE_MINOR, $minor, [Minor version of package])
-	break
-done
+v=$PACKAGE_VERSION
+PACKAGE_MAJOR=${v%%\.*}
+v=${v#$PACKAGE_MAJOR\.}
+PACKAGE_MINOR=${v%%\.*}
+v=${v#$PACKAGE_MINOR\.}
+PACKAGE_MICRO=${v%%\.*}
+
+AC_SUBST(PACKAGE_MAJOR)
+AC_SUBST(PACKAGE_MINOR)
+AC_SUBST(PACKAGE_MICRO)
+
+AC_DEFINE_UNQUOTED(PACKAGE_MAJOR, $PACKAGE_MAJOR, [Major version of package])
+AC_DEFINE_UNQUOTED(PACKAGE_MINOR, $PACKAGE_MINOR, [Minor version of package])
+AC_DEFINE_UNQUOTED(PACKAGE_MICRO, $PACKAGE_MICRO, [Micro version of package])
 
 case "$host" in
 *-*-darwin*)
@@ -565,6 +668,9 @@ AC_DEFINE_UNQUOTED(SHLEXT, ["$SHLEXT"], [File extension for shared libraries])
 AC_SUBST(SHLEXT)
 
 AC_DEFINE_UNQUOTED(EXEEXT, ["$EXEEXT"], [File extension for executables])
+
+p11_shlext=$SHLEXT
+AC_SUBST(p11_shlext)
 
 privatedir='${libexecdir}/p11-kit'
 AC_SUBST(privatedir)
@@ -608,12 +714,13 @@ AM_CONDITIONAL(WITH_BASH_COMPLETION, [test "$with_bash_completion" = "yes"])
 
 
 AC_CONFIG_FILES([Makefile
+	common/test-init.sh
 	doc/Makefile
 	doc/manual/Makefile
 	po/Makefile.in
 	p11-kit/p11-kit-1.pc
 	p11-kit/pkcs11.conf.example
-	trust/test-init.sh
+	p11-kit/version.h
 ])
 AC_OUTPUT
 
@@ -641,5 +748,7 @@ AC_MSG_NOTICE([build options:
 
     Build trust module:              $enable_trust_module
     Trust module paths:              $trust_status
+
+    RPC protocol versions:           $rpc_min upto $rpc_max
 
 ])

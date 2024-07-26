@@ -1,6 +1,6 @@
 project('p11-kit', 'c',
-        version: '0.24.0',
-        meson_version: '>= 0.49')
+        version: '0.25.5',
+        meson_version: '>= 0.51')
 
 version_arr = meson.project_version().split('.')
 major_version = version_arr[0].to_int()
@@ -9,9 +9,9 @@ micro_version = version_arr[2].to_int()
 
 cc = meson.get_compiler('c')
 
-current = 3
-revision = 0
-age = 3
+current = 4
+revision = 1
+age = 4
 
 soversion = current - age
 library_version = '@0@.@1@.@2@'.format(soversion, age, revision)
@@ -29,6 +29,7 @@ conf = configuration_data()
 conf.set_quoted('PACKAGE_NAME', meson.project_name())
 conf.set('PACKAGE_MAJOR', major_version)
 conf.set('PACKAGE_MINOR', minor_version)
+conf.set('PACKAGE_MICRO', micro_version)
 
 host_system = host_machine.system()
 if host_system == 'windows'
@@ -59,8 +60,29 @@ endif
 
 conf.set10('WITH_STRICT', get_option('strict'))
 
+system_deps = []
+
+if ['gnu', 'gnu/kfreebsd'].contains(host_system)
+  libbsd_overlay_dep = dependency('libbsd-overlay')
+  system_deps += libbsd_overlay_dep
+  add_project_dependencies(libbsd_overlay_dep, language: 'c')
+endif
+
+libintl_deps = []
 if get_option('nls') and cc.has_header('libintl.h')
   conf.set('ENABLE_NLS', 1)
+  libintl = cc.find_library('intl', required: false)
+  if libintl.found()
+    if cc.has_function('dgettext', dependencies : libintl)
+      libintl_deps += libintl
+      if ['darwin', 'ios'].contains(host_system)
+        appleframeworks = dependency('appleframeworks', modules : 'CoreFoundation')
+        if appleframeworks.found()
+          libintl_deps += appleframeworks
+        endif
+      endif
+    endif
+  endif
 endif
 
 prefix = get_option('prefix')
@@ -88,6 +110,16 @@ tests_c_args = [
 ]
 
 conf.set('SIZEOF_UNSIGNED_LONG', cc.sizeof('unsigned long'))
+
+rpc_min = get_option('rpc_min')
+rpc_max = get_option('rpc_max')
+
+if rpc_min > rpc_max
+  error('rpc_min is larger than rpc_max')
+endif
+
+conf.set('P11_RPC_PROTOCOL_VERSION_MINIMUM', rpc_min)
+conf.set('P11_RPC_PROTOCOL_VERSION_MAXIMUM', rpc_max)
 
 nanosleep_deps = []
 dlopen_deps = []
@@ -153,32 +185,39 @@ if host_system != 'windows'
   headers = [
     'sys/resource.h',
     'sys/un.h',
-    'ucred.h'
+    'ucred.h',
   ]
 
   foreach h : headers
-    if cc.has_header(h)
+    if cc.has_header(h, dependencies: system_deps)
       conf.set('HAVE_' + h.underscorify().to_upper(), 1)
     endif
   endforeach
 
   functions = [
     'fdwalk',
-    'getauxval',
     'getexecname',
     'getpeereid',
     'getpeerucred',
     'getprogname',
     'getresuid',
+    'isatty',
     'issetugid',
     'mkdtemp',
     'mkstemp',
+    'readpassphrase',
     'secure_getenv',
-    'strndup'
+    'strndup',
+    'strnstr'
   ]
+  if ['linux'].contains(host_system)
+    functions += [
+      'getauxval'
+    ]
+  endif
 
   foreach f : functions
-    if cc.has_function(f)
+    if cc.has_function(f, dependencies: system_deps)
       conf.set('HAVE_' + f.underscorify().to_upper(), 1)
     endif
   endforeach
@@ -190,7 +229,7 @@ if host_system != 'windows'
   tls_test_code_template = '''
 #include <stdlib.h>
 int main (void) {
-static @0@ foo;
+static @0@ int foo;
 return 0;
 }
 '''
@@ -271,7 +310,6 @@ functions = [
   'reallocarray',
   'secure_getenv',
   'setenv',
-  'strerror_r',
   'strnstr',
   'vasprintf'
 ]
@@ -281,6 +319,26 @@ foreach f : functions
     conf.set('HAVE_' + f.underscorify().to_upper(), 1)
   endif
 endforeach
+
+if cc.has_function('strerror_r', prefix: '#include <string.h>')
+  strerror_r_code = '''
+#define _GNU_SOURCE
+#include <errno.h>
+#include <string.h>
+
+int main (void)
+{
+    /* GNU strerror_r returns char *, XSI returns int */
+    char buf[32];
+    return *strerror_r (EINVAL, buf, 32);
+}
+'''
+  if cc.compiles(strerror_r_code, name : 'GNU strerror_r check')
+    conf.set('HAVE_GNU_STRERROR_R', 1)
+  else
+    conf.set('HAVE_XSI_STRERROR_R', 1)
+  endif
+endif
 
 conf.set10('HAVE_DECL_PROGRAM_INVOCATION_SHORT_NAME',
            cc.has_header_symbol('errno.h',
@@ -309,8 +367,8 @@ if libffi.found()
 endif
 
 closures = get_option('closures')
-if closures < 1
-  error('at least one closure must be compiled in')
+if not libffi.found() and closures < 1
+  error('libffi needs to be enabled or at least one closure must be compiled in')
 endif
 
 conf.set('P11_VIRTUAL_MAX_FIXED', closures)
@@ -339,6 +397,11 @@ p11_system_config_modules = p11_system_config / 'modules'
 p11_user_config_file = p11_user_config / 'pkcs11.conf'
 p11_user_config_modules = p11_user_config / 'modules'
 
+p11_env_override_paths = get_option('env_override_paths')
+if p11_env_override_paths == 'enabled'
+  conf.set('P11_ENV_OVERRIDE_PATHS', 1)
+endif
+
 # --------------------------------------------------------------------
 # Hash implementation
 
@@ -356,6 +419,7 @@ endif
 # --------------------------------------------------------------------
 # Trust Module
 
+with_asn1 = false
 with_trust_module = false
 libtasn1_deps = []
 libtasn1 = dependency('libtasn1', version: '>= 2.3',
@@ -365,6 +429,7 @@ if libtasn1.found()
   if asn1Parser.found()
     conf.set('WITH_ASN1', 1)
     libtasn1_deps += libtasn1
+    with_asn1 = true
     with_trust_module = true
   endif
 endif
@@ -380,7 +445,7 @@ libsystemd_deps = []
 libsystemd = dependency('libsystemd', required: get_option('systemd'))
 systemd = dependency('systemd', required: get_option('systemd'))
 if libsystemd.found() and systemd.found()
-  systemduserunitdir = systemd.get_pkgconfig_variable('systemduserunitdir')
+  systemduserunitdir = systemd.get_variable(pkgconfig : 'systemduserunitdir')
   conf.set('WITH_SYSTEMD', 1)
   libsystemd_deps += libsystemd
   with_systemd = true
@@ -391,6 +456,16 @@ configure_file(output: 'config.h', configuration: conf)
 gnome = import('gnome')
 i18n = import('i18n')
 pkg = import('pkgconfig')
+python = import('python').find_installation()
+python_version = python.language_version()
+python_version_req = '>=3.6'
+if not python_version.version_compare(python_version_req)
+  error('Requires Python @0@, @1@ found.'.format(python_version_req, python_version))
+endif
+
+pkcs11_json_project = subproject('pkcs11-json')
+pkcs11_json_gen = pkcs11_json_project.get_variable('pkcs11_json_gen')
+pkcs11_json = pkcs11_json_gen.process('common/pkcs11.h')
 
 subdir('common')
 subdir('p11-kit')
