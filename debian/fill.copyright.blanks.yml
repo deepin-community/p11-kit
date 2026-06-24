@@ -1,6 +1,7 @@
 debian/:
   license: BSD-3-clause
-  copyright: 2011-2024, Andreas Metzler <ametzler@debian.org>
+  copyright: |
+    2011-2024, Andreas Metzler <ametzler@debian.org>
     2011, Chris Coulson <chris.coulson@canonical.com>
 build/m4/gettext.m4:
   'override-license': FSFULLR
