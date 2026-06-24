@@ -1,3 +1,10 @@
+p11-kit (0.25.5-3) unstable; urgency=medium
+
+  [ Adrien Nader ]
+  * Always disable LTO due to linking errors.
+
+ -- Andreas Metzler <ametzler@debian.org>  Tue, 24 Dec 2024 11:58:31 +0100
+
 p11-kit (0.25.5-2) unstable; urgency=medium
 
   * Upload to unstable.
