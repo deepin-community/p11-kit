@@ -1,3 +1,9 @@
+p11-kit (0.25.5-2deepin1) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-13757
+
+ -- deepin-ci-robot <packages@deepin.org>  Fri, 17 Jul 2026 00:22:15 +0800
+
 p11-kit (0.25.5-2) unstable; urgency=medium
 
   * Upload to unstable.
