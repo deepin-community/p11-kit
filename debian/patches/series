@@ -1,2 +1,3 @@
 36_enable_locale.diff
 CVE-2026-13757.patch
+CVE-2026-18938.patch
